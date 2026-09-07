@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero-text">
+        <p class="eyebrow">Hello, I'm</p>
+        <h1>Caleb Gevertz</h1>
+        <h2>JHU Part-Time Data Science Student</h2>
+        <p class="bio">
+            Hi all! I'm Caleb, an Atlanta local who's currently
+            pursuing my part-time Master's in Data Science at JHU
+            while working as an operations and strategy manager.
+            Feel free to reach out at
+            <a href="mailto:caleb.gevertz@gmail.com">caleb.gevertz@gmail.com</a>!
+        </p>
+        <div class="hero-actions">
+            <a href="{{ url_for('main.projects') }}" class="btn btn-primary">View My Projects</a>
+            <a href="{{ url_for('main.contact') }}" class="btn btn-secondary">Get In Touch</a>
+        </div>
+    </div>
+    <div class="hero-image">
+        <img src="{{ url_for('static', filename='images/profile.jpg') }}"
+             alt="Photo of Caleb Gevertz">
+    </div>
+</section>
+{% endblock %}

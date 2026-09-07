@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Projects{% endblock %}
+
+{% block content %}
+<section class="page-header">
+    <h1>Projects</h1>
+    <p>Coursework and side projects from my JHU Data Science journey.</p>
+</section>
+
+<section class="project-list">
+    <article class="project-card">
+        <h2>Module 1 Assignment: Personal Website</h2>
+        <p>
+            My first assignment in Modern Software Concepts in Python was building
+            this very website! It's a Flask application with a Blueprint-based
+            route structure, Jinja2 templates, and custom CSS styling &mdash;
+            covering a homepage, a contact page, and this projects page.
+        </p>
+        <a class="btn btn-primary"
+           href="https://github.com/caleb-gvz/jhu_software_concepts/tree/main/module_1"
+           target="_blank" rel="noopener">
+            View on GitHub &rarr;
+        </a>
+    </article>
+</section>
+{% endblock %}
