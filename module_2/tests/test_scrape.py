@@ -1,6 +1,20 @@
+import urllib.error
 import urllib.robotparser
+from pathlib import Path
+from unittest.mock import patch
 
-from scrape import BASE_URL, _build_survey_url, _check_robots_allowed, _merge_robots_groups
+import pytest
+
+from scrape import (
+    BASE_URL,
+    _build_survey_url,
+    _check_robots_allowed,
+    _extract_page_records,
+    _fetch_page,
+    _merge_robots_groups,
+)
+
+FIXTURE_PATH = Path(__file__).parent / "fixtures" / "survey_page_sample.html"
 
 # Real robots.txt fetched from https://www.thegradcafe.com/robots.txt on 2026-09-13
 ROBOTS_TXT_FIXTURE = """\
@@ -56,3 +70,32 @@ def test_robots_allows_survey_path():
 def test_robots_disallows_signin():
     parser = _make_parser()
     assert _check_robots_allowed(f"{BASE_URL}/signin", parser) is False
+
+
+def test_extract_page_records_returns_records_and_cursor():
+    html_text = FIXTURE_PATH.read_text(encoding="utf-8")
+    records, next_cursor = _extract_page_records(html_text)
+    assert len(records) == 2
+    assert records[0]["id"] == 1020482
+    assert records[0]["school"] == "Bennington College"
+    assert records[1]["decision"] == "Interview"
+    assert next_cursor == (
+        "eyJjcmVhdGVkX2F0IjoiMjAyNi0wOC0yOCAxNzo1MToxMCIsImFkbWl0aWQiOjEwMjA0"
+        "NjMsIl9wb2ludHNUb05leHRJdGVtcyI6dHJ1ZX0"
+    )
+
+
+def test_extract_page_records_raises_on_missing_payload():
+    with pytest.raises(ValueError):
+        _extract_page_records("<html><body>no data-page here</body></html>")
+
+
+def test_fetch_page_raises_on_http_error():
+    def _raise(*args, **kwargs):
+        raise urllib.error.HTTPError(
+            "https://www.thegradcafe.com/survey", 403, "Forbidden", {}, None
+        )
+
+    with patch("urllib.request.urlopen", side_effect=_raise):
+        with pytest.raises(urllib.error.HTTPError):
+            _fetch_page("https://www.thegradcafe.com/survey")

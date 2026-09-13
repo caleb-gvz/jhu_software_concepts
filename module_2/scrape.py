@@ -123,6 +123,26 @@ def _load_robots_parser(
     return rp
 
 
+def _fetch_page(url: str, user_agent: str = USER_AGENT) -> str:
+    """Fetch a URL's HTML body. Raises on non-2xx (caller decides to stop)."""
+    request = urllib.request.Request(url, headers={"User-Agent": user_agent})
+    with urllib.request.urlopen(request, timeout=15) as response:
+        return response.read().decode("utf-8")
+
+
+def _extract_page_records(
+    html_text: str,
+) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    """Pull the Inertia.js `data-page` JSON payload's results off a survey page."""
+    soup = BeautifulSoup(html_text, "html.parser")
+    app_div = soup.find(id="app")
+    if app_div is None or not app_div.has_attr("data-page"):
+        raise ValueError("Could not locate data-page payload in survey HTML")
+    payload = json.loads(app_div["data-page"])
+    results = payload["props"]["results"]
+    return results["data"], results["meta"].get("next_cursor")
+
+
 def _check_robots_allowed(
     url: str, parser: urllib.robotparser.RobotFileParser
 ) -> bool:
