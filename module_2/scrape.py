@@ -32,6 +32,13 @@ def _build_survey_url(cursor: Optional[str] = None) -> str:
     )
 
 
+def _check_robots_allowed(
+    url: str, parser: urllib.robotparser.RobotFileParser
+) -> bool:
+    """Check whether our User-Agent may fetch this URL per robots.txt."""
+    return parser.can_fetch(USER_AGENT, url)
+
+
 def _merge_robots_groups(robots_text: str) -> str:
     """Merge multiple robots.txt records for the same user-agent into one.
 
@@ -292,8 +299,24 @@ def scrape_data(
     return records
 
 
-def _check_robots_allowed(
-    url: str, parser: urllib.robotparser.RobotFileParser
-) -> bool:
-    """Check whether our User-Agent may fetch this URL per robots.txt."""
-    return parser.can_fetch(USER_AGENT, url)
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Scrape GradCafe survey results into a JSON file."
+    )
+    parser.add_argument("--target", type=int, default=40000)
+    parser.add_argument("--output", default="applicant_data.json")
+    parser.add_argument("--checkpoint", default="scrape_checkpoint.json")
+    parser.add_argument("--delay", type=float, default=0.75)
+    args = parser.parse_args()
+
+    records = scrape_data(
+        target_count=args.target,
+        output_path=args.output,
+        checkpoint_path=args.checkpoint,
+        delay_seconds=args.delay,
+    )
+    print(f"Scraped {len(records)} records -> {args.output}")
+
+
+if __name__ == "__main__":
+    main()
