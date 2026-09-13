@@ -9,9 +9,11 @@ from scrape import (
     BASE_URL,
     _build_survey_url,
     _check_robots_allowed,
+    _coerce_float,
     _extract_page_records,
     _fetch_page,
     _merge_robots_groups,
+    _parse_record,
 )
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "survey_page_sample.html"
@@ -99,3 +101,86 @@ def test_fetch_page_raises_on_http_error():
     with patch("urllib.request.urlopen", side_effect=_raise):
         with pytest.raises(urllib.error.HTTPError):
             _fetch_page("https://www.thegradcafe.com/survey")
+
+
+# Real records captured from https://www.thegradcafe.com/survey on 2026-09-13
+ACCEPTED_RECORD = {
+    "id": 1020482,
+    "school": "Bennington College",
+    "program": "Creative Writing Poetry",
+    "level": "MFA",
+    "decision": "Accepted",
+    "decision_label": "Accepted on Sep 11",
+    "acceptedDate": "2026-09-11",
+    "rejectedDate": None,
+    "waitlistedDate": None,
+    "interviewDate": None,
+    "season": "Spring 2027",
+    "status": "American",
+    "ugpa": None,
+    "greq": None,
+    "grev": None,
+    "grew": None,
+    "gres": None,
+    "notes": "Have no idea if I will attend.",
+    "created_at": "2026-09-12",
+    "added_on_label": "Sep 12, 2026",
+}
+
+WAITLISTED_RECORD_WITH_GRE = {
+    "id": 1020479,
+    "school": "Bangladesh University of Engineering and Technology (BUET)",
+    "program": "Electrical Engineering and Computer Science",
+    "level": "PhD",
+    "decision": "Wait listed",
+    "decision_label": "Wait listed on Sep 10",
+    "acceptedDate": None,
+    "rejectedDate": None,
+    "waitlistedDate": "2026-09-10",
+    "interviewDate": None,
+    "season": "Spring 2027",
+    "status": "International",
+    "ugpa": "3.57",
+    "greq": 163,
+    "grev": 158,
+    "grew": "4.00",
+    "gres": None,
+    "notes": None,
+    "created_at": "2026-09-10",
+    "added_on_label": "Sep 10, 2026",
+}
+
+
+def test_coerce_float_handles_none_str_int():
+    assert _coerce_float(None) is None
+    assert _coerce_float("3.57") == 3.57
+    assert _coerce_float(163) == 163.0
+    assert _coerce_float("not a number") is None
+
+
+def test_parse_record_accepted_no_scores():
+    parsed = _parse_record(ACCEPTED_RECORD)
+    assert parsed["id"] == 1020482
+    assert parsed["url"] == "https://www.thegradcafe.com/result/1020482"
+    assert parsed["program_raw"] == "Creative Writing Poetry"
+    assert parsed["university_raw"] == "Bennington College"
+    assert parsed["program"] == "Creative Writing Poetry, Bennington College"
+    assert parsed["degree"] == "MFA"
+    assert parsed["applicant_status"] == "Accepted"
+    assert parsed["status_date"] == "2026-09-11"
+    assert parsed["term"] == "Spring 2027"
+    assert parsed["us_or_international"] == "American"
+    assert parsed["gpa"] is None
+    assert parsed["gre_score"] is None
+    assert parsed["comments"] == "Have no idea if I will attend."
+    assert parsed["date_added"] == "Sep 12, 2026"
+
+
+def test_parse_record_waitlisted_with_mixed_type_scores():
+    parsed = _parse_record(WAITLISTED_RECORD_WITH_GRE)
+    assert parsed["applicant_status"] == "Wait listed"
+    assert parsed["status_date"] == "2026-09-10"
+    assert parsed["gpa"] == 3.57
+    assert parsed["gre_score"] == 163.0
+    assert parsed["gre_v"] == 158.0
+    assert parsed["gre_aw"] == 4.0

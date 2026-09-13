@@ -143,6 +143,64 @@ def _extract_page_records(
     return results["data"], results["meta"].get("next_cursor")
 
 
+_DECISION_DATE_FIELDS = (
+    "acceptedDate",
+    "rejectedDate",
+    "waitlistedDate",
+    "interviewDate",
+)
+
+
+def _coerce_float(value: Any) -> Optional[float]:
+    """Best-effort float coercion; GradCafe's API mixes int/str/None types."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_record(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Map one GradCafe API record into our applicant_data.json schema."""
+    program_raw = (raw.get("program") or "").strip()
+    university_raw = (raw.get("school") or "").strip()
+
+    status_date = None
+    for field in _DECISION_DATE_FIELDS:
+        if raw.get(field):
+            status_date = raw[field]
+            break
+
+    combined_program = (
+        f"{program_raw}, {university_raw}" if university_raw else program_raw
+    )
+
+    return {
+        "id": raw["id"],
+        "url": f"{BASE_URL}/result/{raw['id']}",
+        "program_raw": program_raw,
+        "university_raw": university_raw,
+        "program": combined_program,
+        "degree": raw.get("level"),
+        "applicant_status": raw.get("decision"),
+        "status_date": status_date,
+        "status_label_raw": raw.get("decision_label"),
+        "term": raw.get("season"),
+        "us_or_international": raw.get("status"),
+        "gre_score": _coerce_float(raw.get("greq")),
+        "gre_v": _coerce_float(raw.get("grev")),
+        "gre_aw": _coerce_float(raw.get("grew")),
+        "gre_subject": _coerce_float(raw.get("gres")),
+        "gpa": _coerce_float(raw.get("ugpa")),
+        "comments": raw.get("notes"),
+        "date_added": raw.get("added_on_label"),
+        "date_added_raw": raw.get("created_at"),
+    }
+
+
 def _check_robots_allowed(
     url: str, parser: urllib.robotparser.RobotFileParser
 ) -> bool:
