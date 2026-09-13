@@ -26,6 +26,3 @@ approach used (data structures, algorithms, control flow, known bugs).
 - No hard-coded local absolute paths, secrets, or API keys
 - Git history reflects incremental development, not a single end-of-project
   commit
-
-See [`CLAUDE.md`](CLAUDE.md) for the full set of standing engineering
-conventions that apply across all modules in this repo.
