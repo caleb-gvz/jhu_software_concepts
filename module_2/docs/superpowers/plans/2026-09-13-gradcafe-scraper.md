@@ -1439,6 +1439,14 @@ git push origin main
 
 ---
 
+## Execution Status: ALL TASKS COMPLETE (2026-09-13)
+
+Tasks 1-11 all done, verified, committed, and pushed to `main`. Final
+state: `applicant_data.json` (40,000 records), `llm_extend_applicant_data.json`
+(5,000-record documented subsample), `robots.txt` + `screenshot.jpg`,
+`readme.txt`, 26 passing tests across `tests/test_scrape.py`,
+`tests/test_clean.py`, `tests/test_run_llm_standardization.py`.
+
 ## Self-Review Notes
 
 - **Spec coverage:** URL building/robots check (Task 1), fetch+parse (Task
