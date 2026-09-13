@@ -45,7 +45,21 @@ into a single JSON array.
 
 ---
 
-### Task 1: URL building + robots.txt compliance check
+### Task 1: URL building + robots.txt compliance check — ✅ DONE (2026-09-13)
+
+> **Execution note (2026-09-13):** while implementing this task, discovered
+> that `urllib.robotparser` silently drops every `User-agent: *` block after
+> the first one it encounters, and separately that its `Entry.allowance()`
+> returns the *first* prefix-matching ruleline rather than the most
+> specific one. GradCafe's real robots.txt has two separate `*` blocks
+> (Cloudflare-managed, then site-specific), so both quirks needed fixing:
+> added `_merge_robots_groups()` (merges same-agent blocks) and
+> `_sort_directives_by_specificity()` (orders Allow/Disallow by descending
+> path length so specific rules are checked before generic ones) to
+> `scrape.py`, plus `_fetch_robots_text()`/updated `_load_robots_parser()`
+> to route the raw text through the merge step before parsing. Verified
+> against the live robots.txt: `/survey` and `/result/*` allowed,
+> `/signin`/`/profile` correctly disallowed.
 
 **Files:**
 - Create: `module_2/scrape.py`
