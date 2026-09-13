@@ -49,6 +49,37 @@ These findings materially simplify the build: no Selenium, no manual
 Cloudflare step, no HTML-table scraping/regex-guessing of fields — just
 `urllib` + BeautifulSoup (to pull the one attribute) + `json.loads`.
 
+## Amendment 2026-09-13: LLM step scope, after hands-on benchmarking
+
+Before finalizing the plan, actually installed `llm_hosting`'s dependencies
+and benchmarked it on this machine:
+
+- `llama-cpp-python` (the pin in `llm_hosting/requirements.txt`,
+  `>=0.2.90,<0.3.0`) has no prebuilt wheel on PyPI for this range — PyPI
+  only hosts an sdist requiring a C/C++ compiler (nmake/MSVC), which isn't
+  installed on this machine. The assignment's own instructions anticipate
+  needing "to debug/adjust slightly for local Python/system," so
+  `llm_hosting/requirements.txt` will be updated to install
+  `llama-cpp-python` from the project's own prebuilt CPU wheel index
+  (`https://abetlen.github.io/llama-cpp-python/whl/cpu`), pinned to
+  `0.3.35` — a `py3-none-win_amd64` ctypes-wrapper wheel, installs with no
+  compiler needed, verified to reproduce `sample_data.json`'s expected
+  output exactly.
+- Measured throughput: ~0.92s/record single-process (default threading,
+  all 16 cores), ~0.74s/record when sharded across 4 parallel processes (4
+  threads each) — parallelizing barely helps because this model's
+  inference is memory-bandwidth-bound, not thread-count-bound. At ~0.9s/
+  record, standardizing all 40,000 scraped records would take ~8-10 hours
+  of continuous runtime, which doesn't fit a single session.
+- **Decision (user-confirmed):** `applicant_data.json` still holds the full
+  ~40,000 scraped records (satisfies the 30,000 SHALL minimum).
+  `llm_extend_applicant_data.json` covers a **documented subsample of the
+  first 5,000 records** (~1.3 hours at measured throughput) rather than the
+  full set. This is a deliberate, documented scope reduction, not a bug —
+  the README's "known bugs"/notes section states the subsample size and
+  that the remaining records were not run through the LLM standardizer due
+  to CPU-only runtime constraints on this hardware.
+
 ## Goals / Non-goals
 
 **Goals**
@@ -163,11 +194,16 @@ with `""`).
 
 ### LLM standardization
 
-After `clean_data()`, run `llm_hosting/app.py --file applicant_data.json`
-(CLI mode, parallelized across CPU cores per the instructor's
-recommendation) to produce `llm_extend_applicant_data.json`, which adds
-`llm-generated-program` / `llm-generated-university` per record on top of
-the existing fields (nothing removed or overwritten).
+After `clean_data()`, take the **first 5,000 records** (by scrape order)
+from `applicant_data.json` and run `llm_hosting/app.py --file <subsample>
+--out <ndjson>` (CLI mode, single process, default threading — benchmarking
+showed multi-process sharding isn't worth the added complexity on this
+hardware) to produce `llm_extend_applicant_data.json`. The `.jsonl` CLI
+output is converted into a single JSON array (the deliverable name implies
+one JSON document) before being saved. Adds `llm-generated-program` /
+`llm-generated-university` per record on top of the existing fields
+(nothing removed or overwritten). The README documents the subsample size
+and why.
 
 ### Compliance evidence
 
@@ -198,8 +234,9 @@ the existing fields (nothing removed or overwritten).
   `/result/<id>` page.
 - After cleaning: assert no raw fields were dropped/overwritten, missing
   values are consistently `None`.
-- After LLM standardization: assert `llm_extend_applicant_data.json` has the
-  same record count as the input plus the two new fields on every record.
+- After LLM standardization: assert `llm_extend_applicant_data.json` has
+  exactly 5,000 records (the documented subsample), each with the two new
+  fields plus every original field intact.
 
 ## Git workflow
 
