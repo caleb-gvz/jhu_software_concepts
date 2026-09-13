@@ -204,3 +204,11 @@ Known Bugs / Limitations
 - A small number of records have `null` GRE/GPA fields where the original
   applicant didn't report a score -- this is real missing data from
   GradCafe, represented consistently as `None`/`null`, not a parsing gap.
+- 8 of the 40,000 records (0.02%) have a `null` program_raw -- GradCafe's
+  own API returned an empty program string for these entries (the
+  university field was still populated). Left as `None` rather than
+  fabricated, per the requirement not to invent data the source doesn't
+  provide; these same 8 records also show GRE scores of 0 rather than
+  null, which appears to be an upstream GradCafe data quirk tied to the
+  same blank-program submissions, reproduced faithfully rather than
+  "corrected" without support from the source.
