@@ -201,6 +201,97 @@ def _parse_record(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def save_data(records: List[Dict[str, Any]], path: str) -> None:
+    """Write records to disk as a single JSON array."""
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(records, f, ensure_ascii=False, indent=2)
+
+
+def load_data(path: str) -> List[Dict[str, Any]]:
+    """Load records from disk, or an empty list if the file doesn't exist yet."""
+    if not Path(path).exists():
+        return []
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _load_checkpoint(path: str) -> Dict[str, Any]:
+    if not Path(path).exists():
+        return {"next_cursor": None, "seen_ids": []}
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _save_checkpoint(checkpoint: Dict[str, Any], path: str) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(checkpoint, f)
+
+
+def scrape_data(
+    target_count: int,
+    output_path: str = "applicant_data.json",
+    checkpoint_path: str = "scrape_checkpoint.json",
+    delay_seconds: float = 0.75,
+    fetch_fn=_fetch_page,
+    robots_parser: Optional[urllib.robotparser.RobotFileParser] = None,
+) -> List[Dict[str, Any]]:
+    """Scrape GradCafe survey results up to target_count, resumably."""
+    checkpoint = _load_checkpoint(checkpoint_path)
+    records = load_data(output_path)
+    seen_ids = set(checkpoint.get("seen_ids", []))
+    cursor = checkpoint.get("next_cursor")
+
+    if robots_parser is None:
+        robots_parser = _load_robots_parser()
+
+    pages_since_save = 0
+    while len(seen_ids) < target_count:
+        url = _build_survey_url(cursor)
+        if not _check_robots_allowed(url, robots_parser):
+            print(f"robots.txt disallows {url}; stopping.")
+            break
+        try:
+            html_text = fetch_fn(url)
+        except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+            print(f"Request blocked/failed ({exc}); stopping without retry.")
+            break
+
+        try:
+            page_records, next_cursor = _extract_page_records(html_text)
+        except ValueError as exc:
+            print(f"Could not parse page ({exc}); stopping.")
+            break
+
+        for raw in page_records:
+            rid = raw.get("id")
+            if rid in seen_ids:
+                continue
+            seen_ids.add(rid)
+            records.append(_parse_record(raw))
+
+        cursor = next_cursor
+        pages_since_save += 1
+        if pages_since_save >= 25 or next_cursor is None:
+            save_data(records, output_path)
+            _save_checkpoint(
+                {"next_cursor": cursor, "seen_ids": list(seen_ids)}, checkpoint_path
+            )
+            pages_since_save = 0
+
+        if next_cursor is None:
+            print("Reached end of available results.")
+            break
+
+        if len(seen_ids) < target_count:
+            time.sleep(delay_seconds)
+
+    save_data(records, output_path)
+    _save_checkpoint(
+        {"next_cursor": cursor, "seen_ids": list(seen_ids)}, checkpoint_path
+    )
+    return records
+
+
 def _check_robots_allowed(
     url: str, parser: urllib.robotparser.RobotFileParser
 ) -> bool:

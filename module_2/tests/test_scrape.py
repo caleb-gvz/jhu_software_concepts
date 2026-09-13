@@ -1,3 +1,4 @@
+import json as json_module
 import urllib.error
 import urllib.robotparser
 from pathlib import Path
@@ -14,6 +15,9 @@ from scrape import (
     _fetch_page,
     _merge_robots_groups,
     _parse_record,
+    load_data,
+    save_data,
+    scrape_data,
 )
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "survey_page_sample.html"
@@ -184,3 +188,122 @@ def test_parse_record_waitlisted_with_mixed_type_scores():
     assert parsed["gre_score"] == 163.0
     assert parsed["gre_v"] == 158.0
     assert parsed["gre_aw"] == 4.0
+
+
+def _allow_all_robots_parser():
+    rp = urllib.robotparser.RobotFileParser()
+    rp.parse(["User-agent: *", "Allow: /"])
+    return rp
+
+
+def _page_html(records, next_cursor):
+    payload = {
+        "props": {"results": {"data": records, "meta": {"next_cursor": next_cursor}}}
+    }
+    escaped = json_module.dumps(payload).replace('"', "&quot;")
+    return f'<div id="app" data-page="{escaped}"></div>'
+
+
+def _record(rid):
+    return {
+        "id": rid,
+        "school": f"School {rid}",
+        "program": f"Program {rid}",
+        "level": "Masters",
+        "decision": "Accepted",
+        "decision_label": "Accepted",
+        "acceptedDate": "2026-01-01",
+        "rejectedDate": None,
+        "waitlistedDate": None,
+        "interviewDate": None,
+        "season": "Fall 2026",
+        "status": "American",
+        "ugpa": None,
+        "greq": None,
+        "grev": None,
+        "grew": None,
+        "gres": None,
+        "notes": None,
+        "created_at": "2026-01-01",
+        "added_on_label": "Jan 1, 2026",
+    }
+
+
+def test_save_and_load_data_round_trip(tmp_path):
+    path = tmp_path / "out.json"
+    records = [{"id": 1, "program": "X"}]
+    save_data(records, str(path))
+    assert load_data(str(path)) == records
+
+
+def test_load_data_missing_file_returns_empty_list(tmp_path):
+    assert load_data(str(tmp_path / "missing.json")) == []
+
+
+def test_scrape_data_paginates_until_target_reached(tmp_path):
+    output_path = tmp_path / "applicant_data.json"
+    checkpoint_path = tmp_path / "checkpoint.json"
+
+    page1 = _page_html([_record(1), _record(2)], "cursor-2")
+    page2 = _page_html([_record(3), _record(4)], None)
+    pages = iter([page1, page2])
+
+    def fake_fetch(url):
+        return next(pages)
+
+    records = scrape_data(
+        target_count=3,
+        output_path=str(output_path),
+        checkpoint_path=str(checkpoint_path),
+        delay_seconds=0,
+        fetch_fn=fake_fetch,
+        robots_parser=_allow_all_robots_parser(),
+    )
+
+    assert len(records) == 4  # page granularity: stops after the page that reaches target
+    assert [r["id"] for r in records] == [1, 2, 3, 4]
+    assert load_data(str(output_path)) == records
+
+
+def test_scrape_data_resumes_from_checkpoint(tmp_path):
+    from scrape import _parse_record as parse_record
+
+    output_path = tmp_path / "applicant_data.json"
+    checkpoint_path = tmp_path / "checkpoint.json"
+
+    # Simulate a prior run that already scraped id 1 and checkpointed cursor-2.
+    save_data([parse_record(_record(1))], str(output_path))
+    checkpoint_path.write_text(
+        json_module.dumps({"next_cursor": "cursor-2", "seen_ids": [1]}),
+        encoding="utf-8",
+    )
+
+    page2 = _page_html([_record(2), _record(3)], None)
+    resumed = scrape_data(
+        target_count=3,
+        output_path=str(output_path),
+        checkpoint_path=str(checkpoint_path),
+        delay_seconds=0,
+        fetch_fn=lambda url: page2,
+        robots_parser=_allow_all_robots_parser(),
+    )
+    ids = sorted(r["id"] for r in resumed)
+    assert ids == [1, 2, 3]  # no duplicate of id 1, continued from checkpoint
+
+
+def test_scrape_data_stops_on_http_error(tmp_path):
+    output_path = tmp_path / "applicant_data.json"
+    checkpoint_path = tmp_path / "checkpoint.json"
+
+    def failing_fetch(url):
+        raise urllib.error.HTTPError(url, 403, "Forbidden", {}, None)
+
+    records = scrape_data(
+        target_count=100,
+        output_path=str(output_path),
+        checkpoint_path=str(checkpoint_path),
+        delay_seconds=0,
+        fetch_fn=failing_fetch,
+        robots_parser=_allow_all_robots_parser(),
+    )
+    assert records == []  # stopped immediately, no partial/garbage data
