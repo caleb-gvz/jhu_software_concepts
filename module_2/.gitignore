@@ -2,3 +2,6 @@
 __pycache__/
 scrape_checkpoint.json
 *.pyc
+llm_hosting/models/
+llm_subsample.json
+llm_extend_applicant_data.jsonl
