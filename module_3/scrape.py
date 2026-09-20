@@ -11,7 +11,7 @@ import urllib.request
 import urllib.robotparser
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from bs4 import BeautifulSoup
 
@@ -297,6 +297,84 @@ def scrape_data(
         {"next_cursor": cursor, "seen_ids": list(seen_ids)}, checkpoint_path
     )
     return records
+
+
+class ScrapeError(Exception):
+    """A pull could not continue (blocked, offline, unreadable page, robots.txt).
+
+    ``partial_records`` holds any records gathered before the failure so the caller
+    can still keep them.
+    """
+
+    def __init__(
+        self, message: str, partial_records: Optional[List[Dict[str, Any]]] = None
+    ) -> None:
+        super().__init__(message)
+        self.partial_records = partial_records or []
+
+
+def scrape_new_records(
+    known_ids: Set[int],
+    max_pages: int = 20,
+    delay_seconds: float = 0.75,
+    fetch_fn=_fetch_page,
+    robots_parser: Optional[urllib.robotparser.RobotFileParser] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch the newest survey pages and return records whose id is not in known_ids.
+
+    Grad Cafe lists newest entries first, so this starts at the first page (no
+    cursor) and walks forward until it reaches a page with nothing new, runs out of
+    pages, or hits ``max_pages``. It reuses this module's URL builder, robots.txt
+    check, page parser, and record parser, so the results have exactly the same
+    schema as ``scrape_data``. Any failure raises ScrapeError with a readable
+    message and whatever was collected so far.
+    """
+    new_records: List[Dict[str, Any]] = []
+    seen_ids = set(known_ids)
+
+    if robots_parser is None:
+        try:
+            robots_parser = _load_robots_parser()
+        except urllib.error.HTTPError as exc:
+            raise ScrapeError(f"Could not read robots.txt (HTTP {exc.code}).") from exc
+        except urllib.error.URLError as exc:
+            raise ScrapeError(f"Could not reach Grad Cafe ({exc.reason}).") from exc
+
+    cursor: Optional[str] = None
+    for _ in range(max_pages):
+        url = _build_survey_url(cursor)
+        if not _check_robots_allowed(url, robots_parser):
+            raise ScrapeError(f"robots.txt disallows fetching {url}.", new_records)
+        try:
+            html_text = fetch_fn(url)
+        except urllib.error.HTTPError as exc:
+            raise ScrapeError(
+                f"Grad Cafe blocked or rejected the request (HTTP {exc.code}).",
+                new_records,
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise ScrapeError(
+                f"Could not reach Grad Cafe ({exc.reason}).", new_records
+            ) from exc
+
+        try:
+            page_records, next_cursor = _extract_page_records(html_text)
+        except ValueError as exc:
+            raise ScrapeError(
+                f"Could not read the Grad Cafe page ({exc}).", new_records
+            ) from exc
+
+        fresh = [raw for raw in page_records if raw.get("id") not in seen_ids]
+        for raw in fresh:
+            seen_ids.add(raw["id"])
+            new_records.append(_parse_record(raw))
+
+        if not fresh or next_cursor is None:
+            break  # reached entries we already have, or the last page
+        cursor = next_cursor
+        time.sleep(delay_seconds)
+
+    return new_records
 
 
 def main() -> None:
