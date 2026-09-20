@@ -1,0 +1,36 @@
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
+
+# ---- Python / tool caches ----
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---- IDE / OS files ----
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ---- Secrets and local configuration (never commit credentials) ----
+.env
+.env.*
+!.env.example
+
+# ---- Flask instance data ----
+instance/
+
+# ---- Claude Code files (not tracked in this repo) ----
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+
+# ---- Database dumps ----
+*.dump
+*.backup
