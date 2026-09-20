@@ -2,7 +2,7 @@
 
 Coursework for **Modern Software Concepts in Python** (Johns Hopkins University).
 
-**Student:** Caleb Gevert (JHED: cgevert1)
+**Student:** Caleb Gevertz (JHED: cgevert1)
 
 ## Repo layout
 

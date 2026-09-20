@@ -7,6 +7,7 @@ module 3 instructions.pdf
 scrape_checkpoint.json
 llm_hosting/models/
 llm_subsample.json
+llm_shard_*.json
 *.jsonl
 
 # Packaged submission
