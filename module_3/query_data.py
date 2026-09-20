@@ -1,10 +1,10 @@
 """Answer the Module 3 analysis questions with raw SQL (psycopg 3).
 
-Each question is a ``Query``: its plain-English text, the exact SQL, a short
-explanation, and a ``render`` function that turns the result rows into the formatted
-lines the assignment asks for. Keeping them as data lets the console output
-(``python query_data.py``), ``query_results.pdf``, and the tests all use one source
-of truth, so the SQL shown in the PDF is exactly the SQL that ran.
+Each question is a ``Query``: the shared question text and result formatting from
+``questions.py`` plus the exact SQL and a short explanation of it. Keeping them as
+data lets the console output (``python query_data.py``), ``query_results.pdf`` and the
+tests all use one source of truth, so the SQL shown in the PDF is exactly the SQL that
+ran.
 
 Matching rules used throughout (all case-insensitive):
 * term:   ``LOWER(TRIM(term)) = 'fall 2026'``
@@ -17,38 +17,12 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import Any, Callable, List, Sequence, Tuple
+from typing import Callable, Dict, List, Tuple
 
 import psycopg
 
 from db_config import connect
-from formatting import (
-    fmt_average,
-    fmt_count,
-    fmt_percent,
-    fmt_signed_difference,
-)
-
-Rows = Sequence[Tuple[Any, ...]]
-NO_ROWS_MESSAGE = "No matching entries."
-
-
-@dataclass(frozen=True)
-class Query:
-    number: str          # "1".."9" for the assigned questions, "O1"/"O2" for my own
-    title: str
-    question: str
-    sql: str
-    explanation: str
-    render: Callable[[Rows], List[str]]
-
-
-def _first_value(rows: Rows) -> Any:
-    return rows[0][0] if rows else None
-
-
-# ---- SQL fragments shared verbatim by Questions 8 and 9 (kept as literals so the PDF
-# ---- shows exactly what ran) ------------------------------------------------------
+from questions import QUESTIONS, Rows, display_label
 
 Q1_SQL = """\
 SELECT COUNT(*)
@@ -139,181 +113,64 @@ WHERE LOWER(TRIM(term)) = 'fall 2026'
 GROUP BY outcome
 ORDER BY outcome;"""
 
+SQL_BY_NUMBER: Dict[str, str] = {
+    "1": Q1_SQL, "2": Q2_SQL, "3": Q3_SQL, "4": Q4_SQL, "5": Q5_SQL, "6": Q6_SQL,
+    "7": Q7_SQL, "8": Q8_SQL, "9": Q9_SQL, "O1": O1_SQL, "O2": O2_SQL,
+}
 
-# ---- renderers: result rows -> formatted output lines ---------------------------------
-
-def _render_q1(rows: Rows) -> List[str]:
-    return [f"Fall 2026 applicant count: {fmt_count(_first_value(rows))}"]
-
-
-def _render_q2(rows: Rows) -> List[str]:
-    return [f"Percent international: {fmt_percent(_first_value(rows))}"]
-
-
-def _render_q3(rows: Rows) -> List[str]:
-    gpa, gre_q, gre_v, gre_aw = rows[0]
-    return [
-        f"Average GPA: {fmt_average(gpa)}",
-        f"Average GRE Quantitative: {fmt_average(gre_q)}",
-        f"Average GRE Verbal: {fmt_average(gre_v)}",
-        f"Average GRE Analytical Writing: {fmt_average(gre_aw)}",
-    ]
-
-
-def _render_q4(rows: Rows) -> List[str]:
-    return [f"Average GPA of American Fall 2026 applicants: {fmt_average(_first_value(rows))}"]
-
-
-def _render_q5(rows: Rows) -> List[str]:
-    return [f"Fall 2025 acceptance percentage: {fmt_percent(_first_value(rows))}"]
-
-
-def _render_q6(rows: Rows) -> List[str]:
-    return [f"Average GPA of accepted Fall 2026 applicants: {fmt_average(_first_value(rows))}"]
-
-
-def _render_q7(rows: Rows) -> List[str]:
-    return [f"Johns Hopkins University Computer Science master's entries: {fmt_count(_first_value(rows))}"]
-
-
-def _render_q8(rows: Rows) -> List[str]:
-    return [
-        "Fall 2026 accepted PhD Computer Science entries (original fields): "
-        f"{fmt_count(_first_value(rows))}"
-    ]
+EXPLANATION_BY_NUMBER: Dict[str, str] = {
+    "1": "Counts the rows whose term is Fall 2026. The term is trimmed and lower-cased first "
+         "so 'Fall 2026', 'fall 2026' and ' Fall 2026 ' all match.",
+    "2": "The numerator counts International entries. The denominator counts every entry with a "
+         "non-blank classification (American, International or Other), so blank values are left "
+         "out and American and Other count as not international. NULLIF guards against dividing "
+         "by zero.",
+    "3": "AVG ignores NULLs, so each of the four averages is computed only over applicants who "
+         "supplied that particular metric. An applicant with a GPA but no GRE still counts toward "
+         "the GPA average.",
+    "4": "Filters to Fall 2026 entries classified as American that actually report a GPA, then "
+         "averages the GPA.",
+    "5": "Among all Fall 2025 entries, COUNT(*) FILTER counts those whose status starts with "
+         "'accept' (case-insensitive) and divides by the total number of Fall 2025 entries.",
+    "6": "Filters to Fall 2026 entries with an acceptance status that report a GPA, then "
+         "averages the GPA.",
+    "7": "Uses the original downloaded program and degree fields. The program text must mention "
+         "Johns Hopkins (including the 'John Hopkins' misspelling) or the standalone word JHU, "
+         "and contain 'computer science', and the degree must start with 'master'.",
+    "8": "Applies all five restrictions at once (term, acceptance, PhD, Computer Science, one of "
+         "the four universities) using the original downloaded program text. MIT is matched both "
+         "by its full name and by the standalone word 'MIT'.",
+    "9": "Term, degree and status still come from the original fields; only the program and "
+         "university tests switch to the LLM-generated columns. One query returns both counts "
+         "(the original-field count equals Question 8) and the difference is LLM minus original.",
+    "O1": "Groups Fall 2026 entries by nationality classification (blank shown as Unknown) and "
+          "reports how many entries each group has and what percentage of them were acceptances.",
+    "O2": "Groups Fall 2026 accepted and rejected entries and averages GPA and GRE Quantitative "
+          "within each group, ignoring missing values. It shows how self-reported scores differ "
+          "by outcome.",
+}
 
 
-def _render_q9(rows: Rows) -> List[str]:
-    original_count, llm_count = rows[0]
-    return [
-        f"Original-field count: {fmt_count(original_count)}",
-        f"LLM-field count: {fmt_count(llm_count)}",
-        f"Difference: {fmt_signed_difference(llm_count - original_count)}",
-    ]
+@dataclass(frozen=True)
+class Query:
+    number: str
+    title: str
+    question: str
+    sql: str
+    explanation: str
+    render: Callable[[Rows], List[str]]
 
 
-def _render_o1(rows: Rows) -> List[str]:
-    if not rows:
-        return [NO_ROWS_MESSAGE]
-    return [
-        f"{group}: {fmt_percent(percent)} accepted (n = {fmt_count(entries)})"
-        for group, entries, percent in rows
-    ]
-
-
-def _render_o2(rows: Rows) -> List[str]:
-    if not rows:
-        return [NO_ROWS_MESSAGE]
-    return [
-        f"{outcome} (n = {fmt_count(entries)}): average GPA {fmt_average(gpa)}, "
-        f"average GRE Quantitative {fmt_average(gre_q)}"
-        for outcome, entries, gpa, gre_q in rows
-    ]
-
-
-QUERIES: Tuple[Query, ...] = (
+QUERIES: Tuple[Query, ...] = tuple(
     Query(
-        "1", "Fall 2026 applicants",
-        "How many entries in the database are from applicants who applied for Fall 2026?",
-        Q1_SQL,
-        "Counts the rows whose term is Fall 2026. The term is trimmed and lower-cased first "
-        "so 'Fall 2026', 'fall 2026' and ' Fall 2026 ' all match.",
-        _render_q1,
-    ),
-    Query(
-        "2", "Percent international",
-        "Among entries that provide a nationality classification, what percentage are "
-        "international students?",
-        Q2_SQL,
-        "The numerator counts International entries. The denominator counts every entry with a "
-        "non-blank classification (American, International or Other), so blank values are left "
-        "out and American and Other count as not international. NULLIF guards against dividing "
-        "by zero.",
-        _render_q2,
-    ),
-    Query(
-        "3", "Average GPA and GRE scores",
-        "What are the average GPA, GRE Quantitative, GRE Verbal, and GRE Analytical Writing "
-        "scores of applicants who provide each metric?",
-        Q3_SQL,
-        "AVG ignores NULLs, so each of the four averages is computed only over applicants who "
-        "supplied that particular metric. An applicant with a GPA but no GRE still counts toward "
-        "the GPA average.",
-        _render_q3,
-    ),
-    Query(
-        "4", "Average GPA of American Fall 2026 applicants",
-        "What is the average GPA of American applicants who applied for Fall 2026?",
-        Q4_SQL,
-        "Filters to Fall 2026 entries classified as American that actually report a GPA, then "
-        "averages the GPA.",
-        _render_q4,
-    ),
-    Query(
-        "5", "Fall 2025 acceptance percentage",
-        "What percentage of Fall 2025 entries are acceptances?",
-        Q5_SQL,
-        "Among all Fall 2025 entries, COUNT(*) FILTER counts those whose status starts with "
-        "'accept' (case-insensitive) and divides by the total number of Fall 2025 entries.",
-        _render_q5,
-    ),
-    Query(
-        "6", "Average GPA of accepted Fall 2026 applicants",
-        "What is the average GPA of accepted applicants who applied for Fall 2026?",
-        Q6_SQL,
-        "Filters to Fall 2026 entries with an acceptance status that report a GPA, then "
-        "averages the GPA.",
-        _render_q6,
-    ),
-    Query(
-        "7", "Johns Hopkins Computer Science master's entries",
-        "How many entries are from applicants who applied to Johns Hopkins University for a "
-        "master's degree in Computer Science?",
-        Q7_SQL,
-        "Uses the original downloaded program and degree fields. The program text must mention "
-        "Johns Hopkins (including the 'John Hopkins' misspelling) or the standalone word JHU, "
-        "and contain 'computer science', and the degree must start with 'master'.",
-        _render_q7,
-    ),
-    Query(
-        "8", "Fall 2026 CS PhD acceptances at four universities (original fields)",
-        "How many Fall 2026 entries are acceptances from applicants applying for a PhD in "
-        "Computer Science at Georgetown, MIT, Stanford or Carnegie Mellon?",
-        Q8_SQL,
-        "Applies all five restrictions at once (term, acceptance, PhD, Computer Science, one of "
-        "the four universities) using the original downloaded program text. MIT is matched both "
-        "by its full name and by the standalone word 'MIT'.",
-        _render_q8,
-    ),
-    Query(
-        "9", "Same question using the LLM-generated fields",
-        "Repeating Question 8 but identifying the program and university with "
-        "llm_generated_program and llm_generated_university, how do the counts compare?",
-        Q9_SQL,
-        "Term, degree and status still come from the original fields; only the program and "
-        "university tests switch to the LLM-generated columns. One query returns both counts "
-        "(the original-field count equals Question 8) and the difference is LLM minus original.",
-        _render_q9,
-    ),
-    Query(
-        "O1", "Fall 2026 acceptance rate by nationality group",
-        "For Fall 2026, how does the acceptance rate differ between American, International "
-        "and Other applicants?",
-        O1_SQL,
-        "Groups Fall 2026 entries by nationality classification (blank shown as Unknown) and "
-        "reports how many entries each group has and what percentage of them were acceptances.",
-        _render_o1,
-    ),
-    Query(
-        "O2", "Accepted versus rejected applicants' GPA and GRE",
-        "Among Fall 2026 applicants who were accepted or rejected, how do average GPA and GRE "
-        "Quantitative scores compare, and how many applicants report them?",
-        O2_SQL,
-        "Groups Fall 2026 accepted and rejected entries and averages GPA and GRE Quantitative "
-        "within each group, ignoring missing values. It shows how self-reported scores differ "
-        "by outcome.",
-        _render_o2,
-    ),
+        number=q.number,
+        title=q.title,
+        question=q.question,
+        sql=SQL_BY_NUMBER[q.number],
+        explanation=EXPLANATION_BY_NUMBER[q.number],
+        render=q.render,
+    )
+    for q in QUESTIONS
 )
 
 
@@ -351,11 +208,7 @@ def main() -> int:
         return 1
 
     for query, lines in results:
-        if query.number.startswith("O"):
-            label = f"Original question {query.number[1:]}"
-        else:
-            label = f"Question {query.number}"
-        print(f"{label}: {query.question}")
+        print(f"{display_label(query.number)}: {query.question}")
         for line in lines:
             print(f"  {line}")
         print()
