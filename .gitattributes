@@ -1,0 +1,7 @@
+# Never let Git rewrite line endings inside binary deliverables. ReportLab writes
+# mostly-ASCII PDFs that Git can mistake for text, which core.autocrlf would corrupt.
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.zip  binary
