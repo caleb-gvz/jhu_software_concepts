@@ -35,7 +35,7 @@ from sqlalchemy import func, select
 
 import orm_queries
 from db_config import connect
-from formatting import fmt_average, fmt_count, fmt_percent
+from formatting import fmt_average, fmt_count, fmt_percent, fmt_signed_difference
 from models import Applicant, SessionLocal
 from query_data import Query, run_all
 from questions import display_label
@@ -101,6 +101,59 @@ def build_query_results_pdf(
         str(path), pagesize=letter, title="SQL Query Results", author="Caleb Gevertz",
         leftMargin=0.8 * inch, rightMargin=0.8 * inch, topMargin=0.8 * inch, bottomMargin=0.8 * inch,
     ).build(story)
+
+
+def q9_discussion(original_count: int, llm_count: int) -> str:
+    """Written explanation of why Q8 (original fields) and Q9 (LLM fields) do or don't differ."""
+    difference = llm_count - original_count
+    if difference == 0:
+        return (
+            f"Why Questions 8 and 9 agree: both searches found {original_count} entries, and the "
+            "two sets of matching entries are identical. Grad Cafe's current results already give "
+            "the program and the university as separate, cleanly typed fields (Module 2 rebuilt the "
+            "combined 'Program, University' text only so the local LLM had something to split), so "
+            "with input that tidy the model mostly copies the names back. That does not mean LLM "
+            "standardization is useless: it matters for free-text or misspelled entries such as "
+            "'John Hopkins' or unusual abbreviations, where it can raise the count, and it can also "
+            "lower it by mistake (I saw spelling errors such as 'Fayeletteville' and 'Ellectrical'). "
+            "A difference of zero here only shows that, for these four universities, the original "
+            "fields were already good enough."
+        )
+    direction = (
+        "recognised entries that the original text patterns missed (for example spelling variants "
+        "or abbreviations)" if difference > 0 else
+        "missed entries that the original text matched, or altered a name while standardizing it"
+    )
+    return (
+        f"Why Questions 8 and 9 differ: the original-field count is {original_count} and the "
+        f"LLM-field count is {llm_count}, a difference of {fmt_signed_difference(difference)}. "
+        f"The LLM standardization {direction}. Standardizing to canonical names can raise a count "
+        "when applicants spell a university or program in an unexpected way, and can lower it when "
+        "the small local model mis-splits or mis-spells a name, so neither count is guaranteed to "
+        "be the truth."
+    )
+
+
+def llm_coverage_note(stats: Dict[str, Any]) -> str:
+    """Note saying how many entries have LLM fields and whether Q9's candidates are covered."""
+    filled = fmt_count(stats["llm_standardized_entries"])
+    total = fmt_count(stats["total_entries"])
+    missing = stats["q9_candidates_missing_llm"]
+    if missing == 0:
+        coverage = (
+            "Every Fall 2026 accepted PhD entry (the only entries Question 9 can select) has "
+            "LLM values, so Question 9 is not affected by the entries that were not standardized."
+        )
+    else:
+        coverage = (
+            f"{fmt_count(missing)} Fall 2026 accepted PhD entries still lack LLM values, so the "
+            "Question 9 count may be understated."
+        )
+    return (
+        f"Note on LLM columns: llm_generated_program / llm_generated_university are filled for "
+        f"{filled} of the {total} entries; the local LLM (about 0.75 s per entry) was run on the "
+        f"entries that matter for Question 9 first. {coverage}"
+    )
 
 
 # ---------------------------------------------------------------------------------------
@@ -199,6 +252,13 @@ def collect_stats(session) -> Dict[str, Any]:
         "rejected_average_gre_q": rejected[3],
         "unknown_nationality_entries": count_rows(Applicant.us_or_international.is_(None)),
         "llm_standardized_entries": session.scalar(select(func.count(Applicant.llm_generated_program))),
+        # Fall 2026 + accepted + PhD entries (the only ones Q8/Q9 can select) with no LLM values
+        "q9_candidates_missing_llm": count_rows(
+            func.lower(func.trim(Applicant.term)) == "fall 2026",
+            Applicant.status.ilike("accept%"),
+            Applicant.degree.ilike("phd"),
+            Applicant.llm_generated_program.is_(None),
+        ),
     }
 
 
@@ -212,15 +272,15 @@ def main() -> int:
         print(f"Could not connect to PostgreSQL: {exc}", file=sys.stderr)
         return 1
 
-    llm_note = (
-        f"Note on Questions 8 and 9: llm_generated_program / llm_generated_university are filled "
-        f"for {fmt_count(stats['llm_standardized_entries'])} of the {fmt_count(stats['total_entries'])} "
-        "entries. Question 9 only examines Fall 2026 accepted PhD entries, and the local LLM was run "
-        "on those entries first; other entries may have empty LLM columns, which cannot change Q8 or Q9."
-    )
+    q9_sql = next(query.sql for query, _ in results if query.number == "9")
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(q9_sql)
+        original_count, llm_count = cur.fetchone()
+
+    notes = [llm_coverage_note(stats), q9_discussion(original_count, llm_count)]
     build_query_results_pdf(
         results, MODULE_DIR / "query_results.pdf", stats["total_entries"],
-        datetime.date.today().isoformat(), notes=[llm_note],
+        datetime.date.today().isoformat(), notes=notes,
     )
     build_limitations_pdf(stats, MODULE_DIR / "limitations.pdf")
     print("Wrote query_results.pdf and limitations.pdf")

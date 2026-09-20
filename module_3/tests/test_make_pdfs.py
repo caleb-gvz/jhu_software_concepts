@@ -61,3 +61,32 @@ def test_query_results_pdf_includes_all_eleven_questions_with_sql_and_explanatio
     assert "SELECT COUNT(*)" in text
     assert "Caleb Gevertz" in text and "cgevert1" in text
     assert "Original question 1" in text and "Question 9" in text
+
+
+# ---- Question 9 written explanation and LLM-coverage note --------------------------------
+
+from make_pdfs import llm_coverage_note, q9_discussion  # noqa: E402
+
+
+def test_q9_discussion_explains_a_zero_difference_using_the_actual_counts():
+    text = q9_discussion(original_count=30, llm_count=30)
+    assert "30" in text and "identical" in text.lower()
+    assert "separate" in text.lower()           # the source already gives program and university separately
+    assert "does not mean" in text.lower()      # zero difference is not proof the LLM is useless
+
+
+def test_q9_discussion_explains_a_nonzero_difference_in_both_directions():
+    higher = q9_discussion(original_count=14, llm_count=17)
+    assert "+3" in higher and "17" in higher and "14" in higher
+    lower = q9_discussion(original_count=17, llm_count=14)
+    assert "-3" in lower
+
+
+def test_llm_coverage_note_reports_the_real_numbers():
+    stats = dict(STATS, llm_standardized_entries=10442, q9_candidates_missing_llm=0)
+    note = llm_coverage_note(stats)
+    assert "10,442" in note and "40,000" in note
+    assert "every" in note.lower() or "all" in note.lower()
+
+    partial = llm_coverage_note(dict(stats, q9_candidates_missing_llm=12))
+    assert "12" in partial
