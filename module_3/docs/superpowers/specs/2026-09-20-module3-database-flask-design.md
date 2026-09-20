@@ -42,7 +42,7 @@ results on a Flask page with **Pull Data** and **Update Analysis** buttons.
 
 Blank strings become NULL. Out-of-range scores become NULL so bad entries cannot
 distort averages: GPA outside (0, 4.33], GRE Quant/Verbal outside 130–170, GRE AW
-outside 0–6. The loader is idempotent: `INSERT … ON CONFLICT (p_id) DO UPDATE` only
+outside (0, 6]. Grad Café reports 0.0 for "not provided" (35,263 of 40,000 rows have a writing score of 0), so zeros are missing. Nationality other than American/International/Other (847 rows hold a literal "0") becomes NULL. The loader is idempotent: `INSERT … ON CONFLICT (p_id) DO UPDATE` only
 fills empty LLM columns (`COALESCE`); every other column of an existing row is left
 untouched, so reloading or pulling never overwrites usable data.
 

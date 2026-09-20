@@ -69,9 +69,17 @@ ON CONFLICT (p_id) DO UPDATE SET
 """
 
 # Plausible score ranges. Values outside them are treated as missing.
-GPA_MAX = 4.33            # exclusive lower bound of 0: a GPA of 0 means "not given"
+# Grad Cafe's API reports 0.0 for "not provided" (e.g. 35,263 of the 40,000 records
+# have a GRE writing score of exactly 0), so a zero is a placeholder, never a score:
+# GPA and GRE writing use an exclusive lower bound of 0, and the GRE Quantitative /
+# Verbal range starts at 130, which also excludes zero.
+GPA_MAX = 4.33
 GRE_SECTION_RANGE = (130.0, 170.0)   # Quantitative and Verbal
-GRE_WRITING_RANGE = (0.0, 6.0)       # Analytical Writing
+GRE_WRITING_MAX = 6.0                # Analytical Writing, in (0, 6]
+
+# The only nationality classifications the analysis recognises. Anything else in the
+# raw data (a literal "0" appears in 847 records) is a placeholder and becomes NULL.
+NATIONALITY_CLASSES = {"american": "American", "international": "International", "other": "Other"}
 
 
 def _text(value: Any) -> Optional[str]:
@@ -94,6 +102,12 @@ def _number_in_range(value: Any, low: float, high: float, *, low_inclusive: bool
     return number if above_low and number <= high else None
 
 
+def _nationality(value: Any) -> Optional[str]:
+    """Canonical American / International / Other, or None for anything else."""
+    text = _text(value)
+    return NATIONALITY_CLASSES.get(text.lower()) if text else None
+
+
 def _parse_date(value: Any) -> Optional[datetime.date]:
     """Parse an ISO ``YYYY-MM-DD`` string; anything unparseable becomes None."""
     try:
@@ -112,11 +126,13 @@ def record_to_row(record: Record) -> Record:
         "url": _text(record.get("url")),
         "status": _text(record.get("applicant_status")),
         "term": _text(record.get("term")),
-        "us_or_international": _text(record.get("us_or_international")),
+        "us_or_international": _nationality(record.get("us_or_international")),
         "gpa": _number_in_range(record.get("gpa"), 0.0, GPA_MAX, low_inclusive=False),
         "gre": _number_in_range(record.get("gre_score"), *GRE_SECTION_RANGE),
         "gre_v": _number_in_range(record.get("gre_v"), *GRE_SECTION_RANGE),
-        "gre_aw": _number_in_range(record.get("gre_aw"), *GRE_WRITING_RANGE),
+        "gre_aw": _number_in_range(
+            record.get("gre_aw"), 0.0, GRE_WRITING_MAX, low_inclusive=False
+        ),
         "degree": _text(record.get("degree")),
         "llm_generated_program": _text(record.get("llm-generated-program")),
         "llm_generated_university": _text(record.get("llm-generated-university")),
@@ -142,6 +158,17 @@ def create_table(conn: psycopg.Connection) -> None:
     """Create the ``applicants`` table if it does not exist yet."""
     with conn.cursor() as cur:
         cur.execute(CREATE_TABLE_SQL)
+    conn.commit()
+
+
+def reset_table(conn: psycopg.Connection) -> None:
+    """Delete every row so a reload applies the current cleaning rules to all data.
+
+    The normal upsert deliberately never rewrites existing rows; use this (via
+    ``--reset``) after the cleaning rules change or to rebuild from the JSON files.
+    """
+    with conn.cursor() as cur:
+        cur.execute("TRUNCATE applicants")
     conn.commit()
 
 
@@ -181,6 +208,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         default=module_dir / "llm_extend_applicant_data.json",
         help="LLM-standardized records; merged in by id when the file exists.",
     )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Empty the applicants table first, then reload everything.",
+    )
     args = parser.parse_args(argv)
 
     records = _read_json_list(args.data)
@@ -190,6 +222,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         with connect() as conn:
             create_table(conn)
+            if args.reset:
+                reset_table(conn)
             added = load_records(conn, records)
             total = _count_rows(conn)
     except psycopg.OperationalError as exc:

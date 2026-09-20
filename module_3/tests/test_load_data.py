@@ -51,12 +51,35 @@ def test_out_of_range_scores_become_none_but_valid_ones_survive():
 
 
 def test_boundary_scores_are_kept():
-    row = record_to_row({**BASE, "gpa": 4.33, "gre_score": 130, "gre_v": 170, "gre_aw": 0})
-    assert (row["gpa"], row["gre"], row["gre_v"], row["gre_aw"]) == (4.33, 130.0, 170.0, 0.0)
+    row = record_to_row({**BASE, "gpa": 4.33, "gre_score": 130, "gre_v": 170, "gre_aw": 6})
+    assert (row["gpa"], row["gre"], row["gre_v"], row["gre_aw"]) == (4.33, 130.0, 170.0, 6.0)
 
 
-def test_zero_gpa_is_treated_as_missing():
-    assert record_to_row({**BASE, "gpa": 0})["gpa"] is None
+def test_grad_cafe_zero_placeholders_are_treated_as_missing():
+    # The Grad Cafe API reports 0.0 for "not provided" (35,263 of 40,000 rows have a
+    # writing score of exactly 0), so a zero must never count toward an average.
+    row = record_to_row(
+        {**BASE, "gpa": 0, "gre_score": 0.0, "gre_v": 0.0, "gre_aw": 0.0}
+    )
+    assert (row["gpa"], row["gre"], row["gre_v"], row["gre_aw"]) == (None, None, None, None)
+
+
+def test_real_writing_scores_survive():
+    assert record_to_row({**BASE, "gre_aw": 0.5})["gre_aw"] == 0.5
+    assert record_to_row({**BASE, "gre_aw": 4.5})["gre_aw"] == 4.5
+
+
+def test_only_the_three_known_nationality_classes_are_kept():
+    def nationality(value):
+        return record_to_row({**BASE, "us_or_international": value})["us_or_international"]
+
+    assert nationality("American") == "American"
+    assert nationality("International") == "International"
+    assert nationality("Other") == "Other"
+    assert nationality("  international ") == "International"   # case/space normalised
+    assert nationality("0") is None                             # placeholder in the raw data
+    assert nationality("") is None
+    assert nationality(None) is None
 
 
 def test_missing_optional_values_do_not_fail():
@@ -173,3 +196,16 @@ def test_rows_with_missing_optional_values_load_as_nulls(test_conn):
     with test_conn.cursor() as cur:
         cur.execute("SELECT gpa, gre, comments, date_added FROM applicants WHERE p_id = 9")
         assert cur.fetchone() == (None, None, None, None)
+
+
+def test_reset_empties_the_table_so_a_reload_uses_current_cleaning_rules(test_conn):
+    from load_data import reset_table
+
+    load_records(test_conn, [dict(BASE, id=1, us_or_international="0")])
+    reset_table(test_conn)
+    assert _count(test_conn) == 0
+
+    load_records(test_conn, [dict(BASE, id=1, us_or_international="0")])
+    with test_conn.cursor() as cur:
+        cur.execute("SELECT us_or_international FROM applicants")
+        assert cur.fetchone()[0] is None
