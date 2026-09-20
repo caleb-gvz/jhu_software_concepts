@@ -1,0 +1,13 @@
+# Module-specific ignores (repo-wide ignores live in the root .gitignore)
+
+# Assignment instructions from Canvas -- never pushed to GitHub
+module 3 instructions.pdf
+
+# Scraper / LLM working files
+scrape_checkpoint.json
+llm_hosting/models/
+llm_subsample.json
+*.jsonl
+
+# Packaged submission
+module_3.zip
