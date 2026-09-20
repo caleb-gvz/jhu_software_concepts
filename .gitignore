@@ -30,6 +30,7 @@ instance/
 CLAUDE.md
 CLAUDE.local.md
 .claude/
+.playwright-mcp/
 
 # ---- Database dumps ----
 *.dump
