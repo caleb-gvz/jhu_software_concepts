@@ -1,0 +1,126 @@
+/* Grad Café analysis page. Plain CSS, no external assets. */
+
+:root {
+  --bg: #f4f6fa;
+  --card: #ffffff;
+  --text: #1c2333;
+  --muted: #5b6478;
+  --border: #dde2ec;
+  --brand: #1f3a68;
+  --brand-hover: #2a4d8a;
+  --accent: #0b6e4f;
+  --info-bg: #e8f0fe;    --info-fg: #1a3f8b;
+  --success-bg: #e3f6ec; --success-fg: #0b5c3b;
+  --warning-bg: #fff4d6; --warning-fg: #7a5200;
+  --error-bg: #fde8e8;   --error-fg: #9b1c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12161f;
+    --card: #1b2130;
+    --text: #e8ecf5;
+    --muted: #a3adc2;
+    --border: #2b3448;
+    --brand: #4c7fd6;
+    --brand-hover: #6a97e6;
+    --accent: #5ad0a1;
+    --info-bg: #1b2a4a;    --info-fg: #b6cdfa;
+    --success-bg: #12362a; --success-fg: #9be6c4;
+    --warning-bg: #3b2e10; --warning-fg: #f3d58a;
+    --error-bg: #3f1a1a;   --error-fg: #f5b5b5;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+}
+
+.site-header {
+  background: var(--brand);
+  color: #fff;
+}
+
+.header-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.25rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;   /* Update Analysis sits at the top right */
+  gap: 1rem;
+}
+
+h1 { margin: 0; font-size: 1.6rem; }
+.subtitle { margin: 0.25rem 0 0; opacity: 0.9; font-size: 0.95rem; }
+
+main { max-width: 1100px; margin: 0 auto; padding: 1.25rem 1rem 2rem; }
+
+h2 { font-size: 1.15rem; margin: 0 0 0.4rem; }
+.section-title { margin: 2rem 0 0.75rem; font-size: 1.25rem; }
+
+.button {
+  border: 1px solid var(--brand);
+  background: var(--card);
+  color: var(--brand);
+  padding: 0.6rem 1.1rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.button:hover:not(:disabled) { background: var(--brand); color: #fff; }
+.button:disabled { opacity: 0.55; cursor: not-allowed; }
+.button-primary { background: #fff; color: var(--brand); border-color: #fff; }
+.button-primary:hover:not(:disabled) { background: #dfe8fb; color: var(--brand); }
+
+.notice {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 0.9rem;
+  border: 1px solid transparent;
+}
+.notice-info    { background: var(--info-bg);    color: var(--info-fg); }
+.notice-success { background: var(--success-bg); color: var(--success-fg); }
+.notice-warning { background: var(--warning-bg); color: var(--warning-fg); }
+.notice-error   { background: var(--error-bg);   color: var(--error-fg); }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.15rem;
+}
+
+.pull-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+.pull-card p { margin: 0; color: var(--muted); max-width: 70ch; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.label { margin: 0; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 700; }
+.question { margin: 0.35rem 0 0.75rem; font-weight: 600; }
+.results { border-top: 1px solid var(--border); padding-top: 0.6rem; }
+.result { margin: 0.2rem 0; color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.site-footer { text-align: center; color: var(--muted); font-size: 0.85rem; padding: 1.5rem 1rem 2rem; }
+
+@media (max-width: 640px) {
+  .header-inner, .pull-card { flex-direction: column; align-items: flex-start; }
+  .grid { grid-template-columns: 1fr; }
+}
