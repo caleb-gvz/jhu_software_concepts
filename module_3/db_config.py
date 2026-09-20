@@ -15,6 +15,7 @@ ORM code, so both always talk to the same database with the same settings.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any, Dict
 
 import psycopg
@@ -24,15 +25,39 @@ DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 5432
 DEFAULT_DATABASE = "gradcafe"
 
+# Optional git-ignored file of KEY=VALUE lines. Real environment variables always win;
+# the file only supplies values that are missing from the environment.
+ENV_FILE = Path(__file__).resolve().parent / ".env"
+
+
+def _read_env_file() -> Dict[str, str]:
+    """Parse KEY=VALUE lines from ENV_FILE (comments and blank lines ignored)."""
+    if not ENV_FILE.exists():
+        return {}
+    values: Dict[str, str] = {}
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        values[key.strip()] = value.strip()
+    return values
+
+
+def _setting(name: str, file_values: Dict[str, str], default: Any = None) -> Any:
+    """Environment first, then the .env file, then the default."""
+    return os.environ.get(name, file_values.get(name, default))
+
 
 def connection_settings() -> Dict[str, Any]:
     """Current connection settings; user/password are None when not set."""
+    file_values = _read_env_file()
     return {
-        "host": os.environ.get("PGHOST", DEFAULT_HOST),
-        "port": int(os.environ.get("PGPORT", DEFAULT_PORT)),
-        "dbname": os.environ.get("PGDATABASE", DEFAULT_DATABASE),
-        "user": os.environ.get("PGUSER"),
-        "password": os.environ.get("PGPASSWORD"),
+        "host": _setting("PGHOST", file_values, DEFAULT_HOST),
+        "port": int(_setting("PGPORT", file_values, DEFAULT_PORT)),
+        "dbname": _setting("PGDATABASE", file_values, DEFAULT_DATABASE),
+        "user": _setting("PGUSER", file_values),
+        "password": _setting("PGPASSWORD", file_values),
     }
 
 

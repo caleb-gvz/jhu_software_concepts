@@ -1,14 +1,33 @@
 import pytest
 
+import db_config
 from db_config import connection_settings, sqlalchemy_url
 
 ENV_NAMES = ("PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD")
 
 
 @pytest.fixture(autouse=True)
-def clean_env(monkeypatch):
+def clean_env(monkeypatch, tmp_path):
     for name in ENV_NAMES:
         monkeypatch.delenv(name, raising=False)
+    # Never let a developer's real .env leak into these tests.
+    monkeypatch.setattr(db_config, "ENV_FILE", tmp_path / "missing.env")
+
+
+def test_env_file_fills_in_values_missing_from_the_environment(monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "# comment\n\nPGUSER=file_user\nPGPASSWORD=file_pw\nPGDATABASE=file_db\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(db_config, "ENV_FILE", env_file)
+    monkeypatch.setenv("PGDATABASE", "real_env_wins")
+
+    settings = connection_settings()
+
+    assert settings["user"] == "file_user"
+    assert settings["password"] == "file_pw"
+    assert settings["dbname"] == "real_env_wins"
 
 
 def test_defaults_when_environment_is_empty():
