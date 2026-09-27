@@ -316,7 +316,8 @@ def _cli_process_file(
             sink.close()
 
 
-if __name__ == "__main__":
+def main(argv: List[str] | None = None) -> None:
+    """Command-line entry point: run the HTTP server or standardize a JSON file."""
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -348,7 +349,7 @@ if __name__ == "__main__":
         action="store_true",
         help="Write JSON Lines to stdout instead of a file.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.serve or args.file is None:
         port = int(os.getenv("PORT", "8000"))
@@ -360,3 +361,7 @@ if __name__ == "__main__":
             append=bool(args.append),
             to_stdout=bool(args.stdout),
         )
+
+
+if __name__ == "__main__":
+    main()

@@ -377,7 +377,8 @@ def scrape_new_records(
     return new_records
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
+    """Command-line entry point for the full (resumable) Module 2 scrape."""
     parser = argparse.ArgumentParser(
         description="Scrape GradCafe survey results into a JSON file."
     )
@@ -385,7 +386,7 @@ def main() -> None:
     parser.add_argument("--output", default="applicant_data.json")
     parser.add_argument("--checkpoint", default="scrape_checkpoint.json")
     parser.add_argument("--delay", type=float, default=0.75)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     records = scrape_data(
         target_count=args.target,

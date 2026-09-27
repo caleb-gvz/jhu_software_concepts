@@ -36,7 +36,7 @@ from sqlalchemy import func, select
 import orm_queries
 from db_config import connect
 from formatting import fmt_average, fmt_count, fmt_percent, fmt_signed_difference
-from models import Applicant, SessionLocal
+from models import Applicant, make_session_factory
 from query_data import Query, run_all
 from questions import display_label
 
@@ -266,7 +266,7 @@ def main() -> int:
     try:
         with connect() as conn:
             results = run_all(conn)
-        with SessionLocal() as session:
+        with make_session_factory()() as session:
             stats = collect_stats(session)
     except psycopg.OperationalError as exc:
         print(f"Could not connect to PostgreSQL: {exc}", file=sys.stderr)

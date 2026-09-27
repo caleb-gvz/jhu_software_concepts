@@ -23,7 +23,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Set
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 DEFAULT_SHARDS = 4
 DEFAULT_THREADS_PER_SHARD = 3
@@ -131,7 +131,8 @@ def _launch_shards(
     return processes
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
+    """Command-line entry point: standardize what is left, then merge all outputs."""
     parser = argparse.ArgumentParser(description="Prioritised, resumable LLM standardization.")
     parser.add_argument("--shards", type=int, default=DEFAULT_SHARDS)
     parser.add_argument("--threads", type=int, default=DEFAULT_THREADS_PER_SHARD)
@@ -140,7 +141,7 @@ def main() -> None:
         action="store_true",
         help="Skip running the LLM; just merge existing outputs into the final JSON.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     module_dir = Path(__file__).resolve().parent
     input_path = module_dir / "applicant_data.json"
