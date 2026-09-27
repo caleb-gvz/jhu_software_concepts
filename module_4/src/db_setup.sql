@@ -1,9 +1,9 @@
--- One-time PostgreSQL setup for Module 3. Run as the PostgreSQL superuser:
+-- One-time PostgreSQL setup (Modules 3-4). Run as the PostgreSQL superuser:
 --
 --   psql -U postgres -h localhost -f db_setup.sql
 --
 -- The application role's password is read from the GRADCAFE_APP_PASSWORD environment
--- variable (the same value you export as PGPASSWORD), so no secret is stored in this
+-- variable (the same password you put in DATABASE_URL), so no secret is stored in this
 -- file. The script is safe to re-run.
 
 \getenv app_password GRADCAFE_APP_PASSWORD

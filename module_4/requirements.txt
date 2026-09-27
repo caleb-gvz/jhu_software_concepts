@@ -1,7 +1,16 @@
+# Application (Flask page, ETL, PostgreSQL)
 beautifulsoup4>=4.12
 Flask>=3.0
 psycopg[binary]>=3.2
-pypdf>=4.0
-pytest>=8.0
-reportlab>=4.0
 SQLAlchemy>=2.0
+# Module 3 PDF reports (src/make_pdfs.py)
+pypdf>=4.0
+reportlab>=4.0
+# Tests and coverage
+pytest>=8.0
+pytest-cov>=5.0
+# Documentation
+Sphinx>=7.2
+sphinx-rtd-theme>=2.0
+# The optional local LLM standardizer has its own, much heavier requirements:
+# see src/llm_hosting/requirements.txt (not needed to run the app or the tests).

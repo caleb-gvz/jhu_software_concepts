@@ -44,7 +44,8 @@ def test_environments_caches_secrets_and_generated_files_are_excluded(tmp_path):
         ".env", ".env.local", "CLAUDE.md", "module 4 instructions.pdf", "module_4.zip",
         "module_3.zip", "src/llm_shard_0.json", "src/llm_shard_0.jsonl",
         "src/scrape_checkpoint.json", "src/llm_hosting/models/model.gguf",
-        "docs/_build/doctrees/index.doctree", "docs/_build/html/.buildinfo",
+        "docs/_build/doctrees/index.doctree", "docs/_build/html/.doctrees/index.doctree",
+        "docs/_build/html/.buildinfo",
         ".idea/workspace.xml", "dump.dump", "notes.pyc", ".git/HEAD",
     ):
         _touch(tmp_path, name)

@@ -29,7 +29,9 @@ EXCLUDED_DIRECTORIES = {
     ".playwright-mcp", ".claude", ".idea", ".vscode", ".git", "htmlcov",
 }
 # Relative POSIX paths of directories to skip (LLM weights, Sphinx's pickled doctrees).
-EXCLUDED_RELATIVE_DIRECTORIES = {"src/llm_hosting/models", "docs/_build/doctrees"}
+EXCLUDED_RELATIVE_DIRECTORIES = {
+    "src/llm_hosting/models", "docs/_build/doctrees", "docs/_build/html/.doctrees",
+}
 EXCLUDED_FILE_NAMES = {
     ".env", ".coverage", "CLAUDE.md", "CLAUDE.local.md", "module 4 instructions.pdf",
     "module_3.zip", ZIP_NAME, "scrape_checkpoint.json", ".DS_Store", "Thumbs.db",

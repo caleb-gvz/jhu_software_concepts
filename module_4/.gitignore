@@ -16,4 +16,5 @@ module_4.zip
 
 # Sphinx intermediate build state (the built HTML itself is a deliverable and is kept)
 docs/_build/doctrees/
+docs/_build/html/.doctrees/
 docs/_build/html/.buildinfo
