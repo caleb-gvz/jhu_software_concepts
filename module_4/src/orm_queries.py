@@ -17,13 +17,13 @@ from __future__ import annotations
 
 import sys
 from decimal import Decimal
-from typing import Callable, Dict, List, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 from sqlalchemy import Numeric, and_, case, func, literal, or_, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from models import Applicant, SessionLocal
+from models import Applicant, make_session_factory
 from questions import QUESTIONS, Question, Rows, display_label, get_question
 
 REQUIRED_BY_ASSIGNMENT = ("1", "4", "5", "8", "9", "O1")
@@ -224,14 +224,49 @@ def run_all(session: Session) -> List[Tuple[Question, List[str]]]:
     return [(question, run_query(session, question.number)) for question in QUESTIONS]
 
 
+# Keys of the dictionary the analysis template renders (see ``get_analysis``).
+ANALYSIS_KEYS = ("total_entries", "assigned", "original")
+CARD_KEYS = ("number", "label", "title", "question", "answers")
+
+
+def get_analysis(session: Session) -> Dict[str, Any]:
+    """Everything the analysis page shows, as one dictionary.
+
+    Keys (``ANALYSIS_KEYS``):
+
+    * ``total_entries`` -- number of rows in ``applicants``.
+    * ``assigned`` / ``original`` -- lists of question cards for Questions 1-9 and for
+      my own questions. Each card has the ``CARD_KEYS``: ``number``, ``label``,
+      ``title``, ``question`` and ``answers`` (the formatted result lines, which the
+      page prefixes with "Answer:").
+    """
+    analysis: Dict[str, Any] = {
+        "total_entries": session.scalar(select(func.count()).select_from(Applicant)),
+        "assigned": [],
+        "original": [],
+    }
+    for question, lines in run_all(session):
+        group = "original" if question.number.startswith("O") else "assigned"
+        analysis[group].append(
+            {
+                "number": question.number,
+                "label": display_label(question.number),
+                "title": question.title,
+                "question": question.question,
+                "answers": lines,
+            }
+        )
+    return analysis
+
+
 def main() -> int:
     try:
-        with SessionLocal() as session:
+        with make_session_factory()() as session:
             results = run_all(session)
     except OperationalError as exc:
         print(
             "Could not connect to PostgreSQL. Check that the server is running and that "
-            "PGHOST, PGPORT, PGDATABASE, PGUSER and PGPASSWORD are set.\n"
+            "DATABASE_URL (or PGHOST, PGPORT, PGDATABASE, PGUSER and PGPASSWORD) is set.\n"
             f"Details: {exc.orig}",
             file=sys.stderr,
         )

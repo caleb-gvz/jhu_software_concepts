@@ -17,11 +17,14 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import psycopg
+from psycopg import sql
+from psycopg.rows import dict_row
 
 from db_config import connect
+from load_data import COLUMNS
 from questions import QUESTIONS, Rows, display_label
 
 Q1_SQL = """\
@@ -194,6 +197,30 @@ def run_all(conn: psycopg.Connection) -> List[Tuple[Query, List[str]]]:
     return [(query, run_query(conn, query)) for query in QUERIES]
 
 
+FETCH_APPLICANTS_SQL = sql.SQL("SELECT {columns} FROM applicants ORDER BY p_id").format(
+    columns=sql.SQL(", ").join(sql.Identifier(column) for column in COLUMNS)
+)
+
+
+def fetch_applicants(
+    conn: psycopg.Connection, limit: Optional[int] = None
+) -> List[Dict[str, Any]]:
+    """Return stored applicants as dicts keyed by the Module 3 column names.
+
+    Every dict has exactly the keys in ``load_data.COLUMNS`` (``p_id``, ``program``,
+    ... ``llm_generated_university``), ordered by ``p_id``. ``limit`` caps how many
+    rows are returned.
+    """
+    statement = FETCH_APPLICANTS_SQL
+    params: Tuple[Any, ...] = ()
+    if limit is not None:
+        statement = sql.SQL("{} LIMIT %s").format(FETCH_APPLICANTS_SQL)
+        params = (limit,)
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(statement, params)
+        return cur.fetchall()
+
+
 def main() -> int:
     try:
         with connect() as conn:
@@ -201,7 +228,7 @@ def main() -> int:
     except psycopg.OperationalError as exc:
         print(
             "Could not connect to PostgreSQL. Check that the server is running and that "
-            "PGHOST, PGPORT, PGDATABASE, PGUSER and PGPASSWORD are set.\n"
+            "DATABASE_URL (or PGHOST, PGPORT, PGDATABASE, PGUSER and PGPASSWORD) is set.\n"
             f"Details: {exc}",
             file=sys.stderr,
         )

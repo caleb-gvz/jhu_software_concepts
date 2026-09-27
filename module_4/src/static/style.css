@@ -124,3 +124,6 @@ h2 { font-size: 1.15rem; margin: 0 0 0.4rem; }
   .header-inner, .pull-card { flex-direction: column; align-items: flex-start; }
   .grid { grid-template-columns: 1fr; }
 }
+
+.answer-label { color: var(--muted); font-weight: 700; margin-right: 0.35rem; }
+.updated-at { color: var(--muted); font-size: 0.85rem; margin: 0.5rem 0 0; }
