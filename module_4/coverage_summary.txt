@@ -1,0 +1,30 @@
+$ pytest -m "web or buttons or analysis or db or integration"
+........................................................................ [ 29%]
+........................................................................ [ 58%]
+........................................................................ [ 87%]
+...............................                                          [100%]
+=============================== tests coverage ================================
+_______________ coverage: platform win32, python 3.14.3-final-0 _______________
+
+Name                             Stmts   Miss  Cover   Missing
+--------------------------------------------------------------
+src\clean.py                        55      0   100%
+src\db_config.py                    43      0   100%
+src\flask_app.py                    83      0   100%
+src\formatting.py                   19      0   100%
+src\llm_hosting\app.py             152      0   100%
+src\load_data.py                   183      0   100%
+src\make_pdfs.py                    90      0   100%
+src\make_zip.py                     55      0   100%
+src\models.py                       37      0   100%
+src\orm_queries.py                  78      0   100%
+src\pull_data.py                    64      0   100%
+src\pull_manager.py                 65      0   100%
+src\query_data.py                   66      0   100%
+src\questions.py                    52      0   100%
+src\run_llm_standardization.py      83      0   100%
+src\scrape.py                      212      0   100%
+--------------------------------------------------------------
+TOTAL                             1337      0   100%
+Required test coverage of 100% reached. Total coverage: 100.00%
+247 passed in 19.23s
