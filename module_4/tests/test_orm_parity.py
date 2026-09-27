@@ -8,21 +8,22 @@ from sqlalchemy import Date, Float, Integer, Text
 from sqlalchemy.orm import Session
 
 import orm_queries
-from db_config import sqlalchemy_url
 from load_data import COLUMNS, load_records
 from models import Applicant, make_engine
 from query_data import QUERIES, run_query
 from questions import QUESTIONS
 from tests.test_query_data import SEED
 
+pytestmark = pytest.mark.db
+
 ORM_SOURCE = Path(orm_queries.__file__)
 
 
 @pytest.fixture
-def sql_conn_and_orm_session(test_conn):
+def sql_conn_and_orm_session(test_conn, db_url):
     """The same seeded scratch database seen through psycopg and through SQLAlchemy."""
     load_records(test_conn, SEED)
-    engine = make_engine(sqlalchemy_url().set(database="gradcafe_test"))
+    engine = make_engine(db_url)
     with Session(engine) as session:
         yield test_conn, session
     engine.dispose()
@@ -76,8 +77,8 @@ def test_run_all_covers_every_question_in_order(sql_conn_and_orm_session):
     assert all(lines for _, lines in results)
 
 
-def test_orm_queries_on_an_empty_table_do_not_crash(test_conn):
-    engine = make_engine(sqlalchemy_url().set(database="gradcafe_test"))
+def test_orm_queries_on_an_empty_table_do_not_crash(test_conn, db_url):
+    engine = make_engine(db_url)
     with Session(engine) as session:
         assert all(lines for _, lines in orm_queries.run_all(session))
     engine.dispose()

@@ -1,11 +1,15 @@
 import json
 
+import pytest
+
 from run_llm_standardization import (
     find_completed_ids,
     is_priority_record,
     merge_outputs,
     plan_shards,
 )
+
+pytestmark = pytest.mark.db
 
 
 def _rec(record_id, term="Fall 2026", status="Accepted", degree="PhD"):

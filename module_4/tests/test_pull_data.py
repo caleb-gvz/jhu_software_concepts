@@ -1,7 +1,10 @@
+import pytest
 from load_data import load_records
 from pull_data import pull_new_data
 from scrape import ScrapeError, _parse_record
 from tests.test_scrape import _record
+
+pytestmark = pytest.mark.db
 
 
 def _parsed(record_id, **overrides):

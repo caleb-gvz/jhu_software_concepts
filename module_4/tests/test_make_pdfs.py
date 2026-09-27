@@ -4,6 +4,8 @@ from pypdf import PdfReader
 from make_pdfs import build_limitations_pdf, build_query_results_pdf, limitations_paragraphs
 from query_data import QUERIES
 
+pytestmark = pytest.mark.analysis
+
 STATS = {
     "total_entries": 40000,
     "gre_q_reporters": 1176,

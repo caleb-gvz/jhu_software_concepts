@@ -20,6 +20,8 @@ from scrape import (
     scrape_data,
 )
 
+pytestmark = pytest.mark.db
+
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "survey_page_sample.html"
 
 # Real robots.txt fetched from https://www.thegradcafe.com/robots.txt on 2026-09-13

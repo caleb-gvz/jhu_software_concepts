@@ -9,6 +9,8 @@ import pytest
 from load_data import load_records
 from query_data import QUERIES, get_query, run_all, run_query
 
+pytestmark = pytest.mark.db
+
 
 def _rec(record_id, term="Fall 2026", status="Accepted", degree="PhD", program="Biology, X University",
          nationality=None, gpa=None, gre=None, gre_v=None, gre_aw=None, llm_program=None, llm_university=None):

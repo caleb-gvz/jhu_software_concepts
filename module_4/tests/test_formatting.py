@@ -1,9 +1,13 @@
+import pytest
+
 from formatting import (
     fmt_average,
     fmt_count,
     fmt_percent,
     fmt_signed_difference,
 )
+
+pytestmark = pytest.mark.analysis
 
 
 def test_count_is_whole_number_with_thousands_separator():

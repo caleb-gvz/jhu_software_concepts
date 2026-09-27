@@ -6,6 +6,8 @@ import pytest
 from scrape import ScrapeError, scrape_new_records
 from tests.test_scrape import _allow_all_robots_parser, _page_html, _record
 
+pytestmark = pytest.mark.db
+
 
 def _fetcher(pages):
     """Fake fetch function that serves the given pages in order and counts calls."""
