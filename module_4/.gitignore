@@ -1,0 +1,19 @@
+# Module-specific ignores (repo-wide ignores live in the root .gitignore)
+
+# Assignment instructions from Canvas -- never pushed to GitHub
+module 4 instructions.pdf
+
+# Scraper / LLM working files
+scrape_checkpoint.json
+llm_hosting/models/
+llm_subsample.json
+llm_shard_*.json
+*.jsonl
+
+# Packaged submissions
+module_3.zip
+module_4.zip
+
+# Sphinx intermediate build state (the built HTML itself is a deliverable and is kept)
+docs/_build/doctrees/
+docs/_build/html/.buildinfo

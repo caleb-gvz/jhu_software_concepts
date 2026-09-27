@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grad Café Analysis</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div>
+        <h1>Grad Café Data Analysis</h1>
+        <p class="subtitle">
+          Graduate-school application results, analysed live from PostgreSQL.
+          {% if total_entries is not none %}Currently <strong>{{ "{:,}".format(total_entries) }}</strong> entries.{% endif %}
+        </p>
+      </div>
+      <form method="post" action="{{ url_for('update_analysis') }}" class="header-actions">
+        <button type="submit" class="button button-primary" id="update-button">Update Analysis</button>
+      </form>
+    </div>
+  </header>
+
+  <main>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="notice notice-{{ category }}" role="status">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <div id="pull-banner" class="notice notice-warning" role="status" {% if not pulling %}hidden{% endif %}>
+      New data is currently being retrieved from Grad Café&hellip;
+      <span id="pull-progress">{{ last_pull_message if pulling else "" }}</span>
+    </div>
+
+    {% if not pulling and last_pull_message and last_pull_succeeded is not none %}
+      <div class="notice {{ 'notice-success' if last_pull_succeeded else 'notice-error' }}">
+        Last data pull: {{ last_pull_message }}
+      </div>
+    {% endif %}
+
+    <section class="card pull-card">
+      <div>
+        <h2>Pull Data</h2>
+        <p>
+          Pull Data checks Grad Café for newly submitted application results and adds new
+          records to the database. Depending on the amount of new data available, this may
+          take some time. Only one pull can run at a time, and Update Analysis will not start
+          another.
+        </p>
+      </div>
+      <form method="post" action="{{ url_for('pull_data') }}">
+        <button type="submit" class="button" id="pull-button" {% if pulling %}disabled{% endif %}>Pull Data</button>
+      </form>
+    </section>
+
+    {% if db_error %}
+      <div class="notice notice-error">
+        The page could not connect to the database, so no analysis can be shown. Check that
+        PostgreSQL is running and that the PGHOST, PGPORT, PGDATABASE, PGUSER and PGPASSWORD
+        environment variables are set, then click Update Analysis.
+      </div>
+    {% else %}
+      <h2 class="section-title">Assigned questions</h2>
+      <div class="grid">
+        {% for card in cards.assigned %}
+          <article class="card">
+            <p class="label">{{ card.label }} &middot; {{ card.title }}</p>
+            <p class="question">{{ card.question }}</p>
+            <div class="results">
+              {% for line in card.lines %}<p class="result">{{ line }}</p>{% endfor %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+
+      <h2 class="section-title">My own questions</h2>
+      <div class="grid">
+        {% for card in cards.original %}
+          <article class="card">
+            <p class="label">{{ card.label }} &middot; {{ card.title }}</p>
+            <p class="question">{{ card.question }}</p>
+            <div class="results">
+              {% for line in card.lines %}<p class="result">{{ line }}</p>{% endfor %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </main>
+
+  <footer class="site-footer">
+    Caleb Gevertz &middot; JHED cgevert1 &middot; Modern Software Concepts in Python, Module 3
+  </footer>
+
+  <script>
+    // Poll /status so the page notices when a pull starts or finishes without a manual reload.
+    (function () {
+      var banner = document.getElementById("pull-banner");
+      var progress = document.getElementById("pull-progress");
+      var pullButton = document.getElementById("pull-button");
+      var wasRunning = {{ 'true' if pulling else 'false' }};
+
+      function check() {
+        fetch("{{ url_for('status') }}", { cache: "no-store" })
+          .then(function (response) { return response.json(); })
+          .then(function (state) {
+            if (state.running) {
+              wasRunning = true;
+              banner.hidden = false;
+              progress.textContent = state.message || "";
+              pullButton.disabled = true;
+            } else if (wasRunning) {
+              window.location.reload();   // pull finished: show the outcome and fresh numbers
+            }
+          })
+          .catch(function () { /* server busy or restarting; try again next tick */ });
+      }
+      setInterval(check, 3000);
+    })();
+  </script>
+</body>
+</html>
