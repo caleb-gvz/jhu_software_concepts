@@ -45,10 +45,17 @@ def _coerce_float(value: Any) -> Optional[float]:
         return None
 
 
-def clean_data(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Return a new, normalized list of records. Never mutates the input."""
-    cleaned: List[Dict[str, Any]] = []
+def clean_data(records: List[Any]) -> List[Any]:
+    """Return a new, normalized list of records. Never mutates the input.
+
+    Anything that is not a dict (e.g. a ``null`` entry) is passed through unchanged, in
+    place, so the loader can report it by position instead of this step crashing.
+    """
+    cleaned: List[Any] = []
     for record in records:
+        if not isinstance(record, dict):
+            cleaned.append(record)
+            continue
         new_record = dict(record)
         for field in _TEXT_FIELDS:
             if field in new_record:
@@ -65,16 +72,19 @@ def clean_data(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def load_data(path: str) -> List[Dict[str, Any]]:
+    """Read a JSON list of records."""
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def save_data(records: List[Dict[str, Any]], path: str) -> None:
+    """Write records as an indented JSON list."""
     with open(path, "w", encoding="utf-8") as f:
         json.dump(records, f, ensure_ascii=False, indent=2)
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
+    """Command-line entry point: clean a JSON file in place or into --output."""
     parser = argparse.ArgumentParser(
         description="Clean scraped GradCafe applicant data."
     )
@@ -82,7 +92,7 @@ def main() -> None:
     parser.add_argument(
         "--output", default=None, help="Defaults to overwriting --input."
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     output_path = args.output or args.input
 
     records = load_data(args.input)

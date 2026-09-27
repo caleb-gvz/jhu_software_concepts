@@ -1,4 +1,8 @@
+import pytest
+
 from clean import _clean_text, _coerce_float, _normalize_status, clean_data
+
+pytestmark = pytest.mark.db
 
 
 def test_clean_text_collapses_whitespace():

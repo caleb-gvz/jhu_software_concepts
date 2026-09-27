@@ -1,6 +1,9 @@
+import pytest
 import datetime
 
 from load_data import COLUMNS, merge_llm_fields, record_to_row
+
+pytestmark = pytest.mark.db
 
 BASE = {
     "id": 5,
@@ -157,8 +160,8 @@ def test_create_table_twice_is_harmless(test_conn):
 def test_loading_twice_does_not_duplicate_rows(test_conn):
     records = [dict(BASE, id=1), dict(BASE, id=2)]
 
-    assert load_records(test_conn, records) == 2
-    assert load_records(test_conn, records) == 0
+    assert load_records(test_conn, records).added == 2
+    assert load_records(test_conn, records).added == 0
     assert _count(test_conn) == 2
 
 
@@ -170,7 +173,7 @@ def test_reload_fills_empty_llm_columns_but_never_changes_original_fields(test_c
         **{"llm-generated-program": "Computer Science",
            "llm-generated-university": "Massachusetts Institute of Technology"},
     )
-    assert load_records(test_conn, [changed]) == 0
+    assert load_records(test_conn, [changed]).added == 0
 
     with test_conn.cursor() as cur:
         cur.execute("SELECT status, llm_generated_program, llm_generated_university FROM applicants")
