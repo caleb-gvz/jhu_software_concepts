@@ -4,14 +4,14 @@ This file only *maps* the table that ``load_data.py`` creates and fills; it neve
 calls ``create_all`` and defines no other table, so the ORM and the raw-SQL code
 always read the very same rows in the same PostgreSQL database.
 
-Connection settings come from ``db_config`` (PG* environment variables / the ignored
-``.env`` file), the same source the psycopg code uses.
+Connection settings come from ``db_config`` (``DATABASE_URL``, or the PG* variables /
+the ignored ``.env`` file), the same source the psycopg code uses.
 """
 
 from __future__ import annotations
 
 import datetime
-from typing import Optional
+from typing import Optional, Union
 
 from sqlalchemy import Date, Engine, Float, Integer, Text, create_engine
 from sqlalchemy.engine import URL
@@ -50,13 +50,20 @@ class Applicant(Base):
         return f"Applicant(p_id={self.p_id}, term={self.term!r}, status={self.status!r})"
 
 
-def make_engine(url: Optional[URL] = None) -> Engine:
+def make_engine(url: Optional[Union[URL, str]] = None) -> Engine:
     """Create an Engine (lazy: no connection is opened until first use).
 
     ``pool_pre_ping`` quietly replaces connections that PostgreSQL has closed, which
     matters for a long-running web app.
     """
-    return create_engine(url or sqlalchemy_url(), pool_pre_ping=True)
+    if url is None or isinstance(url, str):
+        url = sqlalchemy_url(url)
+    return create_engine(url, pool_pre_ping=True)
+
+
+def make_session_factory(url: Optional[Union[URL, str]] = None) -> sessionmaker:
+    """A Session factory bound to a new Engine for ``url`` (default: ``DATABASE_URL``)."""
+    return sessionmaker(make_engine(url), expire_on_commit=False)
 
 
 engine = make_engine()
