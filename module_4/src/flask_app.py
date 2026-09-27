@@ -2,28 +2,30 @@
 
 Routes
 ------
-GET  /analysis         The analysis page (``/`` serves the same page).
-POST /pull-data        Start a pull of new Grad Cafe entries. ``202 {"ok": true}`` when it
-                       starts in the background (``200`` with the outcome when the app is
-                       configured to pull synchronously); ``409 {"busy": true}`` while a
-                       pull is already running.
-POST /update-analysis  Re-run the analysis queries. ``200 {"ok": true}``; ``409
-                       {"busy": true}`` (and no update) while a pull is running. Never
-                       scrapes.
-GET  /status           JSON the page polls to show pull progress.
 
-``create_app`` is a factory: every collaborator can be replaced, which is how the tests
-run the whole app without the network and against a scratch database.
+``GET /analysis``
+    The analysis page (``/`` serves the same page).
+``POST /pull-data``
+    Start a pull of new Grad Cafe entries: ``202 {"ok": true}`` when it starts in the
+    background, or ``200`` with the outcome when the app is configured to pull
+    synchronously. ``409 {"busy": true}`` while a pull is already running.
+``POST /update-analysis``
+    Re-run the analysis queries: ``200 {"ok": true}``, or ``409 {"busy": true}`` (and no
+    update) while a pull is running. Never scrapes.
+``GET /status``
+    JSON the page polls to show pull progress.
 
-* ``config``          -- overrides such as ``DATABASE_URL`` or ``PULL_IN_BACKGROUND``.
-* ``scraper``         -- ``scraper(known_ids, max_pages) -> records`` (default: Module 2
-                          scraper against Grad Cafe).
-* ``loader``          -- ``loader(conn, records) -> LoadResult`` (default:
-                          ``load_data.load_records``).
-* ``query_fn``        -- ``query_fn(session) -> dict`` (default:
-                          ``orm_queries.get_analysis``).
-* ``session_factory`` -- SQLAlchemy session factory (default: built from ``DATABASE_URL``).
-* ``pull_manager``    -- the busy-state owner (default: a new ``PullManager``).
+``create_app`` is a factory, and every collaborator can be replaced. This is how the
+tests run the whole app without the network and against a scratch database:
+
+* ``config``: overrides such as ``DATABASE_URL`` or ``PULL_IN_BACKGROUND``.
+* ``scraper``: ``scraper(known_ids, max_pages) -> records`` (default: the Module 2
+  scraper against Grad Cafe).
+* ``loader``: ``loader(conn, records) -> LoadResult`` (default:
+  ``load_data.load_records``).
+* ``query_fn``: ``query_fn(session) -> dict`` (default: ``orm_queries.get_analysis``).
+* ``session_factory``: SQLAlchemy session factory (default: built from ``DATABASE_URL``).
+* ``pull_manager``: the busy-state owner (default: a new ``PullManager``).
 
 All database reads for the page go through ``orm_queries`` (the ``Applicant`` model);
 this module contains no SQL.

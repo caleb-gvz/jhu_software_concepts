@@ -7,6 +7,7 @@ tests all use one source of truth, so the SQL shown in the PDF is exactly the SQ
 ran.
 
 Matching rules used throughout (all case-insensitive):
+
 * term:   ``LOWER(TRIM(term)) = 'fall 2026'``
 * accept: ``status ILIKE 'accept%'``
 * averages skip NULLs automatically, so each average uses only the applicants who
