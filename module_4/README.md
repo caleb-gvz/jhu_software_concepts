@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | Repository (SSH) | `git@github.com:caleb-gvz/jhu_software_concepts.git` (also in `github.txt`) |
-| Documentation (Read the Docs) | <https://jhu-software-concepts.readthedocs.io/en/latest/> |
+| Documentation (Read the Docs) | <https://jhu-sphinx-module-4.readthedocs.io/en/latest/> |
 | Documentation (built HTML in this folder) | [`docs/_build/html/index.html`](docs/_build/html/index.html) |
 | CI workflow | [`../.github/workflows/tests.yml`](../.github/workflows/tests.yml), green run in `actions_success.png` |
 | Coverage proof | [`coverage_summary.txt`](coverage_summary.txt) (100% of `src/`) |

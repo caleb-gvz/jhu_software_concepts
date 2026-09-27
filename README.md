@@ -15,7 +15,7 @@ Modules don't share code or depend on files outside their own folder.
 | [`module_1/`](module_1/) | Personal Portfolio Flask App | [README.txt](module_1/README.txt) |
 | [`module_2/`](module_2/) | Web Scraping (Grad Cafe) | [readme.txt](module_2/readme.txt) |
 | [`module_3/`](module_3/) | Database Queries, SQLAlchemy, Flask | [README.md](module_3/README.md) |
-| [`module_4/`](module_4/) | Pytest, CI and Sphinx docs | [README.md](module_4/README.md) · [docs](https://jhu-software-concepts.readthedocs.io/en/latest/) |
+| [`module_4/`](module_4/) | Pytest, CI and Sphinx docs | [README.md](module_4/README.md) · [docs](https://jhu-sphinx-module-4.readthedocs.io/en/latest/) |
 
 See each module's own README for setup, run instructions, and the
 approach used (data structures, algorithms, control flow, known bugs).
