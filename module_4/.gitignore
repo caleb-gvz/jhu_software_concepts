@@ -5,7 +5,7 @@ module 4 instructions.pdf
 
 # Scraper / LLM working files
 scrape_checkpoint.json
-llm_hosting/models/
+src/llm_hosting/models/
 llm_subsample.json
 llm_shard_*.json
 *.jsonl

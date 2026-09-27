@@ -6,8 +6,8 @@ import pytest
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
-import app as app_module
-from app import create_app
+import flask_app as app_module
+from flask_app import create_app
 from db_config import sqlalchemy_url
 from load_data import load_records
 from models import make_engine

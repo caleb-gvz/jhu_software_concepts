@@ -27,7 +27,7 @@ DEFAULT_DATABASE = "gradcafe"
 
 # Optional git-ignored file of KEY=VALUE lines. Real environment variables always win;
 # the file only supplies values that are missing from the environment.
-ENV_FILE = Path(__file__).resolve().parent / ".env"
+ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 
 
 def _read_env_file() -> Dict[str, str]:
