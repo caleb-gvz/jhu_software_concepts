@@ -1,0 +1,438 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>orm_queries &mdash; Grad Café Analytics</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=9f5556dd"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            Grad Café Analytics
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview and setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../operations.html">Operational notes</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">Grad Café Analytics</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Module code</a></li>
+      <li class="breadcrumb-item active">orm_queries</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for orm_queries</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Answer the analysis questions with SQLAlchemy 2.x instead of handwritten SQL.</span>
+
+<span class="sd">Every function builds a statement from the ``Applicant`` model with ``select()``,</span>
+<span class="sd">``func``, ``and_``/``or_`` and executes it through a ``Session``. Nothing here submits</span>
+<span class="sd">raw SQL strings or uses a database cursor.</span>
+
+<span class="sd">The assignment asks for Questions 1, 4, 5, 8, 9 and one original question here. The</span>
+<span class="sd">Flask page must also read through the ORM and show every result, so all eleven are</span>
+<span class="sd">implemented; the required ones are marked ``REQUIRED_BY_ASSIGNMENT``.</span>
+
+<span class="sd">Each function returns rows shaped exactly like the raw-SQL version, and both are</span>
+<span class="sd">worded and formatted by the same ``render`` functions in ``questions.py``, so the two</span>
+<span class="sd">approaches produce identical output.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">decimal</span><span class="w"> </span><span class="kn">import</span> <span class="n">Decimal</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Tuple</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">sqlalchemy</span><span class="w"> </span><span class="kn">import</span> <span class="n">Numeric</span><span class="p">,</span> <span class="n">and_</span><span class="p">,</span> <span class="n">case</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">literal</span><span class="p">,</span> <span class="n">or_</span><span class="p">,</span> <span class="n">select</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sqlalchemy.exc</span><span class="w"> </span><span class="kn">import</span> <span class="n">OperationalError</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sqlalchemy.orm</span><span class="w"> </span><span class="kn">import</span> <span class="n">Session</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">models</span><span class="w"> </span><span class="kn">import</span> <span class="n">Applicant</span><span class="p">,</span> <span class="n">make_session_factory</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">questions</span><span class="w"> </span><span class="kn">import</span> <span class="n">QUESTIONS</span><span class="p">,</span> <span class="n">Question</span><span class="p">,</span> <span class="n">Rows</span><span class="p">,</span> <span class="n">display_label</span><span class="p">,</span> <span class="n">get_question</span>
+
+<span class="n">REQUIRED_BY_ASSIGNMENT</span> <span class="o">=</span> <span class="p">(</span><span class="s2">"1"</span><span class="p">,</span> <span class="s2">"4"</span><span class="p">,</span> <span class="s2">"5"</span><span class="p">,</span> <span class="s2">"8"</span><span class="p">,</span> <span class="s2">"9"</span><span class="p">,</span> <span class="s2">"O1"</span><span class="p">)</span>
+
+
+<span class="c1"># ---- reusable conditions -------------------------------------------------------------</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_term_is</span><span class="p">(</span><span class="n">term</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Case- and whitespace-insensitive match on the term column."""</span>
+    <span class="k">return</span> <span class="n">func</span><span class="o">.</span><span class="n">lower</span><span class="p">(</span><span class="n">func</span><span class="o">.</span><span class="n">trim</span><span class="p">(</span><span class="n">Applicant</span><span class="o">.</span><span class="n">term</span><span class="p">))</span> <span class="o">==</span> <span class="n">term</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_accepted</span><span class="p">():</span>
+    <span class="k">return</span> <span class="n">Applicant</span><span class="o">.</span><span class="n">status</span><span class="o">.</span><span class="n">ilike</span><span class="p">(</span><span class="s2">"accept%"</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_percent_of_total</span><span class="p">(</span><span class="n">matching_count</span><span class="p">,</span> <span class="n">total_count</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""100 * matching / total, in exact NUMERIC arithmetic like the SQL version."""</span>
+    <span class="k">return</span> <span class="n">literal</span><span class="p">(</span><span class="n">Decimal</span><span class="p">(</span><span class="s2">"100.0"</span><span class="p">),</span> <span class="n">Numeric</span><span class="p">)</span> <span class="o">*</span> <span class="n">matching_count</span> <span class="o">/</span> <span class="n">total_count</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_mentions_one_of_the_four_universities</span><span class="p">(</span><span class="n">column</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Georgetown, MIT (full name or the standalone word), Stanford, Carnegie Mellon."""</span>
+    <span class="k">return</span> <span class="n">or_</span><span class="p">(</span>
+        <span class="n">column</span><span class="o">.</span><span class="n">ilike</span><span class="p">(</span><span class="s2">"</span><span class="si">%g</span><span class="s2">eorgetown%"</span><span class="p">),</span>
+        <span class="n">column</span><span class="o">.</span><span class="n">ilike</span><span class="p">(</span><span class="s2">"%massachusetts institute of technology%"</span><span class="p">),</span>
+        <span class="n">column</span><span class="o">.</span><span class="n">regexp_match</span><span class="p">(</span><span class="sa">r</span><span class="s2">"\ymit\y"</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">"i"</span><span class="p">),</span>
+        <span class="n">column</span><span class="o">.</span><span class="n">ilike</span><span class="p">(</span><span class="s2">"</span><span class="si">%s</span><span class="s2">tanford%"</span><span class="p">),</span>
+        <span class="n">column</span><span class="o">.</span><span class="n">ilike</span><span class="p">(</span><span class="s2">"</span><span class="si">%c</span><span class="s2">arnegie mellon%"</span><span class="p">),</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_fall_2026_accepted_phd</span><span class="p">():</span>
+    <span class="k">return</span> <span class="n">and_</span><span class="p">(</span>
+        <span class="n">_term_is</span><span class="p">(</span><span class="s2">"fall 2026"</span><span class="p">),</span>
+        <span class="n">_is_accepted</span><span class="p">(),</span>
+        <span class="n">Applicant</span><span class="o">.</span><span class="n">degree</span><span class="o">.</span><span class="n">ilike</span><span class="p">(</span><span class="s2">"phd"</span><span class="p">),</span>
+    <span class="p">)</span>
+
+
+<span class="c1"># ---- the questions -------------------------------------------------------------------</span>
+
+<div class="viewcode-block" id="q1">
+<a class="viewcode-back" href="../api.html#orm_queries.q1">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">q1</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Rows</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Q1: number of Fall 2026 entries."""</span>
+    <span class="k">return</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+        <span class="n">select</span><span class="p">(</span><span class="n">func</span><span class="o">.</span><span class="n">count</span><span class="p">())</span><span class="o">.</span><span class="n">select_from</span><span class="p">(</span><span class="n">Applicant</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">_term_is</span><span class="p">(</span><span class="s2">"fall 2026"</span><span class="p">))</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="q2">
+<a class="viewcode-back" href="../api.html#orm_queries.q2">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">q2</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Rows</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Q2: percent international among entries with a non-blank nationality."""</span>
+    <span class="n">international</span> <span class="o">=</span> <span class="n">func</span><span class="o">.</span><span class="n">count</span><span class="p">()</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span>
+        <span class="n">func</span><span class="o">.</span><span class="n">lower</span><span class="p">(</span><span class="n">Applicant</span><span class="o">.</span><span class="n">us_or_international</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"international"</span>
+    <span class="p">)</span>
+    <span class="n">classified</span> <span class="o">=</span> <span class="n">func</span><span class="o">.</span><span class="n">count</span><span class="p">()</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span>
+        <span class="n">func</span><span class="o">.</span><span class="n">nullif</span><span class="p">(</span><span class="n">func</span><span class="o">.</span><span class="n">trim</span><span class="p">(</span><span class="n">Applicant</span><span class="o">.</span><span class="n">us_or_international</span><span class="p">),</span> <span class="s2">""</span><span class="p">)</span><span class="o">.</span><span class="n">is_not</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+        <span class="n">select</span><span class="p">(</span><span class="n">_percent_of_total</span><span class="p">(</span><span class="n">international</span><span class="p">,</span> <span class="n">func</span><span class="o">.</span><span class="n">nullif</span><span class="p">(</span><span class="n">classified</span><span class="p">,</span> <span class="mi">0</span><span class="p">)))</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="q3">
+<a class="viewcode-back" href="../api.html#orm_queries.q3">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">q3</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Rows</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Q3: each average over only the applicants who supplied that metric (AVG skips NULL)."""</span>
+    <span class="k">return</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+        <span class="n">select</span><span class="p">(</span>
+            <span class="n">func</span><span class="o">.</span><span class="n">avg</span><span class="p">(</span><span class="n">Applicant</span><span class="o">.</span><span class="n">gpa</span><span class="p">),</span>
+            <span class="n">func</span><span class="o">.</span><span class="n">avg</span><span class="p">(</span><span class="n">Applicant</span><span class="o">.</span><span class="n">gre</span><span class="p">),</span>
+            <span class="n">func</span><span class="o">.</span><span class="n">avg</span><span class="p">(</span><span class="n">Applicant</span><span class="o">.</span><span class="n">gre_v</span><span class="p">),</span>
+            <span class="n">func</span><span class="o">.</span><span class="n">avg</span><span class="p">(</span><span class="n">Applicant</span><span class="o">.</span><span class="n">gre_aw</span><span class="p">),</span>
+        <span class="p">)</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="q4">
+<a class="viewcode-back" href="../api.html#orm_queries.q4">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">q4</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Rows</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Q4: average GPA of American Fall 2026 applicants who report a GPA."""</span>
+    <span class="k">return</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+        <span class="n">select</span><span class="p">(</span><span class="n">func</span><span class="o">.</span><span class="n">avg</span><span class="p">(</span><span class="n">Applicant</span><span class="o">.</span><span class="n">gpa</span><span class="p">))</span><span class="o">.</span><span class="n">where</span><span class="p">(</span>
+            <span class="n">_term_is</span><span class="p">(</span><span class="s2">"fall 2026"</span><span class="p">),</span>
+            <span class="n">func</span><span class="o">.</span><span class="n">lower</span><span class="p">(</span><span class="n">func</span><span class="o">.</span><span class="n">trim</span><span class="p">(</span><span class="n">Applicant</span><span class="o">.</span><span class="n">us_or_international</span><span class="p">))</span> <span class="o">==</span> <span class="s2">"american"</span><span class="p">,</span>
+            <span class="n">Applicant</span><span class="o">.</span><span class="n">gpa</span><span class="o">.</span><span class="n">is_not</span><span class="p">(</span><span class="kc">None</span><span class="p">),</span>
+        <span class="p">)</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="q5">
+<a class="viewcode-back" href="../api.html#orm_queries.q5">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">q5</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Rows</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Q5: percentage of Fall 2025 entries that are acceptances."""</span>
+    <span class="n">accepted</span> <span class="o">=</span> <span class="n">func</span><span class="o">.</span><span class="n">count</span><span class="p">()</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">_is_accepted</span><span class="p">())</span>
+    <span class="k">return</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+        <span class="n">select</span><span class="p">(</span><span class="n">_percent_of_total</span><span class="p">(</span><span class="n">accepted</span><span class="p">,</span> <span class="n">func</span><span class="o">.</span><span class="n">nullif</span><span class="p">(</span><span class="n">func</span><span class="o">.</span><span class="n">count</span><span class="p">(),</span> <span class="mi">0</span><span class="p">)))</span><span class="o">.</span><span class="n">where</span><span class="p">(</span>
+            <span class="n">_term_is</span><span class="p">(</span><span class="s2">"fall 2025"</span><span class="p">)</span>
+        <span class="p">)</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="q6">
+<a class="viewcode-back" href="../api.html#orm_queries.q6">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">q6</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Rows</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Q6: average GPA of accepted Fall 2026 applicants who report a GPA."""</span>
+    <span class="k">return</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+        <span class="n">select</span><span class="p">(</span><span class="n">func</span><span class="o">.</span><span class="n">avg</span><span class="p">(</span><span class="n">Applicant</span><span class="o">.</span><span class="n">gpa</span><span class="p">))</span><span class="o">.</span><span class="n">where</span><span class="p">(</span>
+            <span class="n">_term_is</span><span class="p">(</span><span class="s2">"fall 2026"</span><span class="p">),</span> <span class="n">_is_accepted</span><span class="p">(),</span> <span class="n">Applicant</span><span class="o">.</span><span class="n">gpa</span><span class="o">.</span><span class="n">is_not</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span>
+        <span class="p">)</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="q7">
+<a class="viewcode-back" href="../api.html#orm_queries.q7">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">q7</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Rows</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Q7: Johns Hopkins / JHU Computer Science master's entries (original fields)."""</span>
+    <span class="k">return</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+        <span class="n">select</span><span class="p">(</span><span class="n">func</span><span class="o">.</span><span class="n">count</span><span class="p">())</span><span class="o">.</span><span class="n">select_from</span><span class="p">(</span><span class="n">Applicant</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span>
+            <span class="n">or_</span><span class="p">(</span>
+                <span class="n">Applicant</span><span class="o">.</span><span class="n">program</span><span class="o">.</span><span class="n">ilike</span><span class="p">(</span><span class="s2">"%john</span><span class="si">% ho</span><span class="s2">pkins%"</span><span class="p">),</span>
+                <span class="n">Applicant</span><span class="o">.</span><span class="n">program</span><span class="o">.</span><span class="n">regexp_match</span><span class="p">(</span><span class="sa">r</span><span class="s2">"\yjhu\y"</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">"i"</span><span class="p">),</span>
+            <span class="p">),</span>
+            <span class="n">Applicant</span><span class="o">.</span><span class="n">program</span><span class="o">.</span><span class="n">ilike</span><span class="p">(</span><span class="s2">"</span><span class="si">%c</span><span class="s2">omputer science%"</span><span class="p">),</span>
+            <span class="n">Applicant</span><span class="o">.</span><span class="n">degree</span><span class="o">.</span><span class="n">ilike</span><span class="p">(</span><span class="s2">"master%"</span><span class="p">),</span>
+        <span class="p">)</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="q8">
+<a class="viewcode-back" href="../api.html#orm_queries.q8">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">q8</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Rows</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Q8: Fall 2026 accepted PhD Computer Science entries at the four universities."""</span>
+    <span class="k">return</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+        <span class="n">select</span><span class="p">(</span><span class="n">func</span><span class="o">.</span><span class="n">count</span><span class="p">())</span><span class="o">.</span><span class="n">select_from</span><span class="p">(</span><span class="n">Applicant</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span>
+            <span class="n">_fall_2026_accepted_phd</span><span class="p">(),</span>
+            <span class="n">Applicant</span><span class="o">.</span><span class="n">program</span><span class="o">.</span><span class="n">ilike</span><span class="p">(</span><span class="s2">"</span><span class="si">%c</span><span class="s2">omputer science%"</span><span class="p">),</span>
+            <span class="n">_mentions_one_of_the_four_universities</span><span class="p">(</span><span class="n">Applicant</span><span class="o">.</span><span class="n">program</span><span class="p">),</span>
+        <span class="p">)</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="q9">
+<a class="viewcode-back" href="../api.html#orm_queries.q9">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">q9</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Rows</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Q9: the Q8 count next to the same count using the LLM-generated fields."""</span>
+    <span class="n">original_field_count</span> <span class="o">=</span> <span class="n">func</span><span class="o">.</span><span class="n">count</span><span class="p">()</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span>
+        <span class="n">and_</span><span class="p">(</span>
+            <span class="n">Applicant</span><span class="o">.</span><span class="n">program</span><span class="o">.</span><span class="n">ilike</span><span class="p">(</span><span class="s2">"</span><span class="si">%c</span><span class="s2">omputer science%"</span><span class="p">),</span>
+            <span class="n">_mentions_one_of_the_four_universities</span><span class="p">(</span><span class="n">Applicant</span><span class="o">.</span><span class="n">program</span><span class="p">),</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">llm_field_count</span> <span class="o">=</span> <span class="n">func</span><span class="o">.</span><span class="n">count</span><span class="p">()</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span>
+        <span class="n">and_</span><span class="p">(</span>
+            <span class="n">Applicant</span><span class="o">.</span><span class="n">llm_generated_program</span><span class="o">.</span><span class="n">ilike</span><span class="p">(</span><span class="s2">"</span><span class="si">%c</span><span class="s2">omputer science%"</span><span class="p">),</span>
+            <span class="n">_mentions_one_of_the_four_universities</span><span class="p">(</span><span class="n">Applicant</span><span class="o">.</span><span class="n">llm_generated_university</span><span class="p">),</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+        <span class="n">select</span><span class="p">(</span><span class="n">original_field_count</span><span class="p">,</span> <span class="n">llm_field_count</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">_fall_2026_accepted_phd</span><span class="p">())</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="o1">
+<a class="viewcode-back" href="../api.html#orm_queries.o1">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">o1</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Rows</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Original question 1: Fall 2026 acceptance rate by nationality group."""</span>
+    <span class="n">nationality_group</span> <span class="o">=</span> <span class="n">func</span><span class="o">.</span><span class="n">coalesce</span><span class="p">(</span>
+        <span class="n">func</span><span class="o">.</span><span class="n">nullif</span><span class="p">(</span><span class="n">func</span><span class="o">.</span><span class="n">trim</span><span class="p">(</span><span class="n">Applicant</span><span class="o">.</span><span class="n">us_or_international</span><span class="p">),</span> <span class="s2">""</span><span class="p">),</span> <span class="s2">"Unknown"</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">label</span><span class="p">(</span><span class="s2">"nationality_group"</span><span class="p">)</span>
+    <span class="n">entries</span> <span class="o">=</span> <span class="n">func</span><span class="o">.</span><span class="n">count</span><span class="p">()</span><span class="o">.</span><span class="n">label</span><span class="p">(</span><span class="s2">"entries"</span><span class="p">)</span>
+    <span class="n">acceptance_percent</span> <span class="o">=</span> <span class="n">_percent_of_total</span><span class="p">(</span>
+        <span class="n">func</span><span class="o">.</span><span class="n">count</span><span class="p">()</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">_is_accepted</span><span class="p">()),</span> <span class="n">func</span><span class="o">.</span><span class="n">count</span><span class="p">()</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">label</span><span class="p">(</span><span class="s2">"acceptance_percent"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+        <span class="n">select</span><span class="p">(</span><span class="n">nationality_group</span><span class="p">,</span> <span class="n">entries</span><span class="p">,</span> <span class="n">acceptance_percent</span><span class="p">)</span>
+        <span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">_term_is</span><span class="p">(</span><span class="s2">"fall 2026"</span><span class="p">))</span>
+        <span class="o">.</span><span class="n">group_by</span><span class="p">(</span><span class="n">nationality_group</span><span class="p">)</span>
+        <span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">entries</span><span class="o">.</span><span class="n">desc</span><span class="p">(),</span> <span class="n">nationality_group</span><span class="p">)</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="o2">
+<a class="viewcode-back" href="../api.html#orm_queries.o2">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">o2</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Rows</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Original question 2: Fall 2026 accepted vs rejected, entries / avg GPA / avg GRE Quant."""</span>
+    <span class="n">outcome</span> <span class="o">=</span> <span class="n">case</span><span class="p">((</span><span class="n">_is_accepted</span><span class="p">(),</span> <span class="s2">"Accepted"</span><span class="p">),</span> <span class="n">else_</span><span class="o">=</span><span class="s2">"Rejected"</span><span class="p">)</span><span class="o">.</span><span class="n">label</span><span class="p">(</span><span class="s2">"outcome"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+        <span class="n">select</span><span class="p">(</span>
+            <span class="n">outcome</span><span class="p">,</span>
+            <span class="n">func</span><span class="o">.</span><span class="n">count</span><span class="p">()</span><span class="o">.</span><span class="n">label</span><span class="p">(</span><span class="s2">"entries"</span><span class="p">),</span>
+            <span class="n">func</span><span class="o">.</span><span class="n">avg</span><span class="p">(</span><span class="n">Applicant</span><span class="o">.</span><span class="n">gpa</span><span class="p">),</span>
+            <span class="n">func</span><span class="o">.</span><span class="n">avg</span><span class="p">(</span><span class="n">Applicant</span><span class="o">.</span><span class="n">gre</span><span class="p">),</span>
+        <span class="p">)</span>
+        <span class="o">.</span><span class="n">where</span><span class="p">(</span>
+            <span class="n">_term_is</span><span class="p">(</span><span class="s2">"fall 2026"</span><span class="p">),</span>
+            <span class="n">or_</span><span class="p">(</span><span class="n">_is_accepted</span><span class="p">(),</span> <span class="n">Applicant</span><span class="o">.</span><span class="n">status</span><span class="o">.</span><span class="n">ilike</span><span class="p">(</span><span class="s2">"reject%"</span><span class="p">)),</span>
+        <span class="p">)</span>
+        <span class="o">.</span><span class="n">group_by</span><span class="p">(</span><span class="n">outcome</span><span class="p">)</span>
+        <span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">outcome</span><span class="p">)</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span></div>
+
+
+
+<span class="n">ORM_QUERIES</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">Session</span><span class="p">],</span> <span class="n">Rows</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"1"</span><span class="p">:</span> <span class="n">q1</span><span class="p">,</span> <span class="s2">"2"</span><span class="p">:</span> <span class="n">q2</span><span class="p">,</span> <span class="s2">"3"</span><span class="p">:</span> <span class="n">q3</span><span class="p">,</span> <span class="s2">"4"</span><span class="p">:</span> <span class="n">q4</span><span class="p">,</span> <span class="s2">"5"</span><span class="p">:</span> <span class="n">q5</span><span class="p">,</span> <span class="s2">"6"</span><span class="p">:</span> <span class="n">q6</span><span class="p">,</span> <span class="s2">"7"</span><span class="p">:</span> <span class="n">q7</span><span class="p">,</span> <span class="s2">"8"</span><span class="p">:</span> <span class="n">q8</span><span class="p">,</span> <span class="s2">"9"</span><span class="p">:</span> <span class="n">q9</span><span class="p">,</span>
+    <span class="s2">"O1"</span><span class="p">:</span> <span class="n">o1</span><span class="p">,</span> <span class="s2">"O2"</span><span class="p">:</span> <span class="n">o2</span><span class="p">,</span>
+<span class="p">}</span>
+
+
+<div class="viewcode-block" id="run_query">
+<a class="viewcode-back" href="../api.html#orm_queries.run_query">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">run_query</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">,</span> <span class="n">number</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Run one question through the ORM and return its formatted result lines."""</span>
+    <span class="k">return</span> <span class="n">get_question</span><span class="p">(</span><span class="n">number</span><span class="p">)</span><span class="o">.</span><span class="n">render</span><span class="p">(</span><span class="n">ORM_QUERIES</span><span class="p">[</span><span class="n">number</span><span class="p">](</span><span class="n">session</span><span class="p">))</span></div>
+
+
+
+<div class="viewcode-block" id="run_all">
+<a class="viewcode-back" href="../api.html#orm_queries.run_all">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">run_all</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Question</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]]:</span>
+<span class="w">    </span><span class="sd">"""Run every question in order, pairing each with its formatted result lines."""</span>
+    <span class="k">return</span> <span class="p">[(</span><span class="n">question</span><span class="p">,</span> <span class="n">run_query</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">question</span><span class="o">.</span><span class="n">number</span><span class="p">))</span> <span class="k">for</span> <span class="n">question</span> <span class="ow">in</span> <span class="n">QUESTIONS</span><span class="p">]</span></div>
+
+
+
+<span class="c1"># Keys of the dictionary the analysis template renders (see ``get_analysis``).</span>
+<span class="n">ANALYSIS_KEYS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">"total_entries"</span><span class="p">,</span> <span class="s2">"assigned"</span><span class="p">,</span> <span class="s2">"original"</span><span class="p">)</span>
+<span class="n">CARD_KEYS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">"number"</span><span class="p">,</span> <span class="s2">"label"</span><span class="p">,</span> <span class="s2">"title"</span><span class="p">,</span> <span class="s2">"question"</span><span class="p">,</span> <span class="s2">"answers"</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="get_analysis">
+<a class="viewcode-back" href="../api.html#orm_queries.get_analysis">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_analysis</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Everything the analysis page shows, as one dictionary.</span>
+
+<span class="sd">    Keys (``ANALYSIS_KEYS``):</span>
+
+<span class="sd">    * ``total_entries`` -- number of rows in ``applicants``.</span>
+<span class="sd">    * ``assigned`` / ``original`` -- lists of question cards for Questions 1-9 and for</span>
+<span class="sd">      my own questions. Each card has the ``CARD_KEYS``: ``number``, ``label``,</span>
+<span class="sd">      ``title``, ``question`` and ``answers`` (the formatted result lines, which the</span>
+<span class="sd">      page prefixes with "Answer:").</span>
+<span class="sd">    """</span>
+    <span class="n">analysis</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">"total_entries"</span><span class="p">:</span> <span class="n">session</span><span class="o">.</span><span class="n">scalar</span><span class="p">(</span><span class="n">select</span><span class="p">(</span><span class="n">func</span><span class="o">.</span><span class="n">count</span><span class="p">())</span><span class="o">.</span><span class="n">select_from</span><span class="p">(</span><span class="n">Applicant</span><span class="p">)),</span>
+        <span class="s2">"assigned"</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="s2">"original"</span><span class="p">:</span> <span class="p">[],</span>
+    <span class="p">}</span>
+    <span class="k">for</span> <span class="n">question</span><span class="p">,</span> <span class="n">lines</span> <span class="ow">in</span> <span class="n">run_all</span><span class="p">(</span><span class="n">session</span><span class="p">):</span>
+        <span class="n">group</span> <span class="o">=</span> <span class="s2">"original"</span> <span class="k">if</span> <span class="n">question</span><span class="o">.</span><span class="n">number</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"O"</span><span class="p">)</span> <span class="k">else</span> <span class="s2">"assigned"</span>
+        <span class="n">analysis</span><span class="p">[</span><span class="n">group</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">"number"</span><span class="p">:</span> <span class="n">question</span><span class="o">.</span><span class="n">number</span><span class="p">,</span>
+                <span class="s2">"label"</span><span class="p">:</span> <span class="n">display_label</span><span class="p">(</span><span class="n">question</span><span class="o">.</span><span class="n">number</span><span class="p">),</span>
+                <span class="s2">"title"</span><span class="p">:</span> <span class="n">question</span><span class="o">.</span><span class="n">title</span><span class="p">,</span>
+                <span class="s2">"question"</span><span class="p">:</span> <span class="n">question</span><span class="o">.</span><span class="n">question</span><span class="p">,</span>
+                <span class="s2">"answers"</span><span class="p">:</span> <span class="n">lines</span><span class="p">,</span>
+            <span class="p">}</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">analysis</span></div>
+
+
+
+<div class="viewcode-block" id="main">
+<a class="viewcode-back" href="../api.html#orm_queries.main">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">make_session_factory</span><span class="p">()()</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
+            <span class="n">results</span> <span class="o">=</span> <span class="n">run_all</span><span class="p">(</span><span class="n">session</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">OperationalError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span>
+            <span class="s2">"Could not connect to PostgreSQL. Check that the server is running and that "</span>
+            <span class="s2">"DATABASE_URL (or PGHOST, PGPORT, PGDATABASE, PGUSER and PGPASSWORD) is set.</span><span class="se">\n</span><span class="s2">"</span>
+            <span class="sa">f</span><span class="s2">"Details: </span><span class="si">{</span><span class="n">exc</span><span class="o">.</span><span class="n">orig</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+            <span class="n">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="k">for</span> <span class="n">question</span><span class="p">,</span> <span class="n">lines</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
+        <span class="n">marker</span> <span class="o">=</span> <span class="s2">"  [required ORM question]"</span> <span class="k">if</span> <span class="n">question</span><span class="o">.</span><span class="n">number</span> <span class="ow">in</span> <span class="n">REQUIRED_BY_ASSIGNMENT</span> <span class="k">else</span> <span class="s2">""</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">display_label</span><span class="p">(</span><span class="n">question</span><span class="o">.</span><span class="n">number</span><span class="p">)</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">question</span><span class="o">.</span><span class="n">question</span><span class="si">}{</span><span class="n">marker</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  </span><span class="si">{</span><span class="n">line</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">()</span>
+    <span class="k">return</span> <span class="mi">0</span></div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">"__main__"</span><span class="p">:</span>
+    <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Caleb Gevertz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,273 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pull_data &mdash; Grad Café Analytics</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=9f5556dd"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            Grad Café Analytics
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview and setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../operations.html">Operational notes</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">Grad Café Analytics</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Module code</a></li>
+      <li class="breadcrumb-item active">pull_data</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for pull_data</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Fetch newly posted Grad Cafe entries and add them to the database.</span>
+
+<span class="sd">This is what the web app's **Pull Data** button runs (in a background thread, see</span>
+<span class="sd">``pull_manager.py``). It can also be run by hand:</span>
+
+<span class="sd">    python pull_data.py</span>
+
+<span class="sd">Flow: ask the database which ids it already has -&gt; scrape the newest Grad Cafe pages</span>
+<span class="sd">until reaching entries we already have (``scrape.scrape_new_records``, the Module 2</span>
+<span class="sd">scraper) -&gt; clean them with Module 2's ``clean.clean_data`` -&gt; upsert with</span>
+<span class="sd">``load_data.load_records``. Because loading is an upsert that never rewrites existing</span>
+<span class="sd">rows, a pull can only *add* usable data, never overwrite or corrupt it.</span>
+
+<span class="sd">The scraper and the loader are parameters, so tests (and the Flask app factory) can</span>
+<span class="sd">inject fakes and never touch the network. If the loader fails, the transaction is</span>
+<span class="sd">rolled back, so a failed pull leaves no partial writes behind.</span>
+
+<span class="sd">Records added by a pull have no LLM-standardized program/university (the local model</span>
+<span class="sd">is far too slow to run inside a button click); those two columns stay NULL for them.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">,</span> <span class="n">Set</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">psycopg</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">clean</span><span class="w"> </span><span class="kn">import</span> <span class="n">clean_data</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">db_config</span><span class="w"> </span><span class="kn">import</span> <span class="n">connect</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">load_data</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoadResult</span><span class="p">,</span> <span class="n">create_table</span><span class="p">,</span> <span class="n">load_records</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">scrape</span><span class="w"> </span><span class="kn">import</span> <span class="n">ScrapeError</span><span class="p">,</span> <span class="n">scrape_new_records</span>
+
+<span class="c1"># How many of the newest survey pages (~20 entries each) one pull may read.</span>
+<span class="n">DEFAULT_MAX_PAGES</span> <span class="o">=</span> <span class="mi">20</span>
+
+<span class="n">ScrapeFunction</span> <span class="o">=</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">Set</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span> <span class="nb">int</span><span class="p">],</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]</span>
+<span class="n">LoadFunction</span> <span class="o">=</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">psycopg</span><span class="o">.</span><span class="n">Connection</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Any</span><span class="p">]],</span> <span class="n">LoadResult</span><span class="p">]</span>
+<span class="n">ReportFunction</span> <span class="o">=</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">str</span><span class="p">],</span> <span class="kc">None</span><span class="p">]</span>
+
+
+<div class="viewcode-block" id="PullResult">
+<a class="viewcode-back" href="../api.html#pull_data.PullResult">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">PullResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""How many rows one pull added, how many records it skipped, and any scrape error."""</span>
+
+    <span class="n">added</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">error</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">skipped</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+
+<div class="viewcode-block" id="PullResult.summary">
+<a class="viewcode-back" href="../api.html#pull_data.PullResult.summary">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">summary</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""One sentence describing the outcome, suitable for showing to the user."""</span>
+        <span class="n">skipped</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">" </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">skipped</span><span class="si">}</span><span class="s2"> unusable record</span><span class="si">{</span><span class="s1">'s were'</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="bp">self</span><span class="o">.</span><span class="n">skipped</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">' was'</span><span class="si">}</span><span class="s2"> skipped."</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">skipped</span> <span class="k">else</span> <span class="s2">""</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">error</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">added</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">return</span> <span class="p">(</span>
+                    <span class="s2">"No new entries were available; the database is already up to date."</span>
+                    <span class="o">+</span> <span class="n">skipped</span>
+                <span class="p">)</span>
+            <span class="n">noun</span> <span class="o">=</span> <span class="s2">"record"</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">added</span> <span class="o">==</span> <span class="mi">1</span> <span class="k">else</span> <span class="s2">"records"</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">"Added </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">added</span><span class="si">}</span><span class="s2"> new </span><span class="si">{</span><span class="n">noun</span><span class="si">}</span><span class="s2"> to the database."</span> <span class="o">+</span> <span class="n">skipped</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">added</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">"Pull stopped: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">error</span><span class="si">}</span><span class="s2"> No new records were added."</span> <span class="o">+</span> <span class="n">skipped</span>
+        <span class="n">noun</span> <span class="o">=</span> <span class="s2">"record was"</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">added</span> <span class="o">==</span> <span class="mi">1</span> <span class="k">else</span> <span class="s2">"records were"</span>
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"Pull stopped: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">error</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">added</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">noun</span><span class="si">}</span><span class="s2"> added before it stopped."</span>
+            <span class="o">+</span> <span class="n">skipped</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="default_scraper">
+<a class="viewcode-back" href="../api.html#pull_data.default_scraper">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">default_scraper</span><span class="p">(</span><span class="n">known_ids</span><span class="p">:</span> <span class="n">Set</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span> <span class="n">max_pages</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">"""The real Module 2 scraper: fetch the newest Grad Cafe entries not in known_ids."""</span>
+    <span class="k">return</span> <span class="n">scrape_new_records</span><span class="p">(</span><span class="n">known_ids</span><span class="p">,</span> <span class="n">max_pages</span><span class="o">=</span><span class="n">max_pages</span><span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_known_ids</span><span class="p">(</span><span class="n">conn</span><span class="p">:</span> <span class="n">psycopg</span><span class="o">.</span><span class="n">Connection</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Set</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Every p_id already stored in ``applicants``."""</span>
+    <span class="k">with</span> <span class="n">conn</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span> <span class="k">as</span> <span class="n">cur</span><span class="p">:</span>
+        <span class="n">cur</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">"SELECT p_id FROM applicants"</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">{</span><span class="n">row</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">cur</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()}</span>
+
+
+<div class="viewcode-block" id="pull_new_data">
+<a class="viewcode-back" href="../api.html#pull_data.pull_new_data">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">pull_new_data</span><span class="p">(</span>
+    <span class="n">conn</span><span class="p">:</span> <span class="n">psycopg</span><span class="o">.</span><span class="n">Connection</span><span class="p">,</span>
+    <span class="n">scrape_fn</span><span class="p">:</span> <span class="n">ScrapeFunction</span> <span class="o">=</span> <span class="n">default_scraper</span><span class="p">,</span>
+    <span class="n">max_pages</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">DEFAULT_MAX_PAGES</span><span class="p">,</span>
+    <span class="n">loader</span><span class="p">:</span> <span class="n">LoadFunction</span> <span class="o">=</span> <span class="n">load_records</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PullResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Scrape entries the database lacks, clean them, and add them.</span>
+
+<span class="sd">    ``scrape_fn`` and ``loader`` are injectable so tests run without the network. If</span>
+<span class="sd">    the scrape fails part-way, the records fetched so far are still saved and the error</span>
+<span class="sd">    is reported in the result. If the *loader* fails, its transaction is rolled back</span>
+<span class="sd">    and the exception propagates, so nothing is half-written.</span>
+<span class="sd">    """</span>
+    <span class="n">known_ids</span> <span class="o">=</span> <span class="n">_known_ids</span><span class="p">(</span><span class="n">conn</span><span class="p">)</span>
+    <span class="n">error</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">new_records</span> <span class="o">=</span> <span class="n">scrape_fn</span><span class="p">(</span><span class="n">known_ids</span><span class="p">,</span> <span class="n">max_pages</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">ScrapeError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="n">new_records</span> <span class="o">=</span> <span class="n">exc</span><span class="o">.</span><span class="n">partial_records</span>
+        <span class="n">error</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">new_records</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">PullResult</span><span class="p">(</span><span class="n">added</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="n">error</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">loaded</span> <span class="o">=</span> <span class="n">loader</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">clean_data</span><span class="p">(</span><span class="n">new_records</span><span class="p">))</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="n">conn</span><span class="o">.</span><span class="n">rollback</span><span class="p">()</span>
+        <span class="k">raise</span>
+    <span class="k">return</span> <span class="n">PullResult</span><span class="p">(</span><span class="n">added</span><span class="o">=</span><span class="n">loaded</span><span class="o">.</span><span class="n">added</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="n">error</span><span class="p">,</span> <span class="n">skipped</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">loaded</span><span class="o">.</span><span class="n">rejected</span><span class="p">))</span></div>
+
+
+
+<div class="viewcode-block" id="run_pull">
+<a class="viewcode-back" href="../api.html#pull_data.run_pull">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">run_pull</span><span class="p">(</span>
+    <span class="n">database_url</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">scrape_fn</span><span class="p">:</span> <span class="n">ScrapeFunction</span> <span class="o">=</span> <span class="n">default_scraper</span><span class="p">,</span>
+    <span class="n">loader</span><span class="p">:</span> <span class="n">LoadFunction</span> <span class="o">=</span> <span class="n">load_records</span><span class="p">,</span>
+    <span class="n">report</span><span class="p">:</span> <span class="n">ReportFunction</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">message</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">max_pages</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">DEFAULT_MAX_PAGES</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PullResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Open a connection, make sure the table exists, and run one pull.</span>
+
+<span class="sd">    ``report`` receives short progress messages for the web page. Connection errors</span>
+<span class="sd">    and loader errors propagate to the caller (the PullManager records them).</span>
+<span class="sd">    """</span>
+    <span class="n">report</span><span class="p">(</span><span class="s2">"Checking Grad Cafe for new entries..."</span><span class="p">)</span>
+    <span class="k">with</span> <span class="n">connect</span><span class="p">(</span><span class="n">database_url</span><span class="p">)</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
+        <span class="n">create_table</span><span class="p">(</span><span class="n">conn</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">pull_new_data</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">scrape_fn</span><span class="o">=</span><span class="n">scrape_fn</span><span class="p">,</span> <span class="n">max_pages</span><span class="o">=</span><span class="n">max_pages</span><span class="p">,</span> <span class="n">loader</span><span class="o">=</span><span class="n">loader</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="main">
+<a class="viewcode-back" href="../api.html#pull_data.main">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Command-line entry point: pull once and print the outcome."""</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">run_pull</span><span class="p">(</span><span class="n">report</span><span class="o">=</span><span class="k">lambda</span> <span class="n">message</span><span class="p">:</span> <span class="nb">print</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">flush</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+    <span class="k">except</span> <span class="n">psycopg</span><span class="o">.</span><span class="n">OperationalError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Pull stopped: could not connect to the database (</span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">)."</span><span class="p">,</span> <span class="n">flush</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">2</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">summary</span><span class="p">(),</span> <span class="n">flush</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">return</span> <span class="mi">2</span> <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">error</span> <span class="k">else</span> <span class="mi">0</span></div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">"__main__"</span><span class="p">:</span>
+    <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Caleb Gevertz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

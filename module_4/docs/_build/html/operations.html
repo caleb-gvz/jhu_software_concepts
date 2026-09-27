@@ -1,0 +1,193 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Operational notes &mdash; Grad Café Analytics</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=9f5556dd"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="API reference" href="api.html" />
+    <link rel="prev" title="Testing guide" href="testing.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            Grad Café Analytics
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview and setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="testing.html">Testing guide</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Operational notes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#busy-state-policy">Busy-state policy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#idempotency-strategy">Idempotency strategy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#uniqueness-keys">Uniqueness keys</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#troubleshooting">Troubleshooting</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Grad Café Analytics</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Operational notes</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="operational-notes">
+<h1>Operational notes<a class="headerlink" href="#operational-notes" title="Link to this heading"></a></h1>
+<section id="busy-state-policy">
+<h2>Busy-state policy<a class="headerlink" href="#busy-state-policy" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>At most one pull runs at a time. <a class="reference internal" href="api.html#pull_manager.PullManager.start" title="pull_manager.PullManager.start"><code class="xref py py-meth docutils literal notranslate"><span class="pre">pull_manager.PullManager.start()</span></code></a> claims the
+busy flag under a lock before launching the job, so two quick clicks cannot start two
+scrapes. The second click gets <code class="docutils literal notranslate"><span class="pre">409</span> <span class="pre">{&quot;busy&quot;:</span> <span class="pre">true}</span></code>.</p></li>
+<li><p>While a pull is running, <strong>Update Analysis</strong> also returns <code class="docutils literal notranslate"><span class="pre">409</span> <span class="pre">{&quot;busy&quot;:</span> <span class="pre">true}</span></code> and
+does not re-query, so the page never shows a half-loaded dataset. Once the pull
+finishes, the page says so and asks the user to click Update Analysis.</p></li>
+<li><p>A pull that raises (network, database, loader) is recorded as a failed outcome with a
+readable message, shown on the page and in <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/status</span></code>. The busy flag is always
+released.</p></li>
+<li><p>Pulls run on a daemon thread in the web process. If the server restarts, the pull
+stops. Rows are committed per batch, so a stopped pull never leaves a partial batch.</p></li>
+</ul>
+</section>
+<section id="idempotency-strategy">
+<h2>Idempotency strategy<a class="headerlink" href="#idempotency-strategy" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Loading is an upsert: <code class="docutils literal notranslate"><span class="pre">INSERT</span> <span class="pre">...</span> <span class="pre">ON</span> <span class="pre">CONFLICT</span> <span class="pre">(p_id)</span> <span class="pre">DO</span> <span class="pre">UPDATE</span></code>. Re-running the
+loader, pulling the same page twice, or overlapping two pulls never duplicates a row.</p></li>
+<li><p>A conflict never overwrites an existing row’s original fields. It may only fill LLM
+columns that are still empty (<code class="docutils literal notranslate"><span class="pre">COALESCE</span></code>), which lets the slow LLM step finish later.</p></li>
+<li><p>Each batch is loaded in one transaction. If the database rejects any row, the whole
+batch is rolled back.</p></li>
+<li><p>Invalid source records (null, not an object, missing or non-integer <code class="docutils literal notranslate"><span class="pre">id</span></code>) are
+skipped. Each one is reported with its 1-based position, for example
+<code class="docutils literal notranslate"><span class="pre">record</span> <span class="pre">#2:</span> <span class="pre">record</span> <span class="pre">is</span> <span class="pre">null</span></code>, and every usable record is still loaded.</p></li>
+</ul>
+</section>
+<section id="uniqueness-keys">
+<h2>Uniqueness keys<a class="headerlink" href="#uniqueness-keys" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">p_id</span></code>, the Grad Café result id (<code class="docutils literal notranslate"><span class="pre">/result/&lt;id&gt;</span></code>), is the primary key and the only
+uniqueness key. Before scraping, the pull asks the database for all known ids, so the
+scraper stops at the first page that has nothing new.</p>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">Could</span> <span class="pre">not</span> <span class="pre">connect</span> <span class="pre">to</span> <span class="pre">PostgreSQL</span></code> / page shows “could not connect to the database”</dt><dd><p>PostgreSQL is not running, or <code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code> is wrong. Check it with
+<code class="docutils literal notranslate"><span class="pre">psql</span> <span class="pre">&quot;$DATABASE_URL&quot;</span> <span class="pre">-c</span> <span class="pre">&quot;select</span> <span class="pre">1&quot;</span></code>. On Windows, start the <code class="docutils literal notranslate"><span class="pre">postgresql-x64-NN</span></code>
+service.</p>
+</dd>
+<dt>Database tests are skipped and coverage fails</dt><dd><p>The scratch database is missing. Run <code class="docutils literal notranslate"><span class="pre">src/setup_db.sh</span></code> (or <code class="docutils literal notranslate"><span class="pre">.bat</span></code>) once, or set
+<code class="docutils literal notranslate"><span class="pre">TEST_DATABASE_URL</span></code> to a database the tests may empty and refill.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">password</span> <span class="pre">authentication</span> <span class="pre">failed</span> <span class="pre">for</span> <span class="pre">user</span> <span class="pre">&quot;gradcafe_app&quot;</span></code></dt><dd><p>The role’s password differs from the one in <code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code>. Re-run the setup
+script with <code class="docutils literal notranslate"><span class="pre">GRADCAFE_APP_PASSWORD</span></code> set to the password you want. The script is
+safe to re-run and resets the password.</p>
+</dd>
+<dt>Coverage reports <code class="docutils literal notranslate"><span class="pre">No</span> <span class="pre">data</span> <span class="pre">to</span> <span class="pre">report</span></code> or measures nothing</dt><dd><p>pytest was started outside <code class="docutils literal notranslate"><span class="pre">module_4</span></code>. <code class="docutils literal notranslate"><span class="pre">--cov=src</span></code> is relative to the current
+directory, so <code class="docutils literal notranslate"><span class="pre">cd</span> <span class="pre">module_4</span></code> first.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">ModuleNotFoundError:</span> <span class="pre">flask_app</span></code> (or another app module)</dt><dd><p>Same cause: run pytest from <code class="docutils literal notranslate"><span class="pre">module_4</span></code> so <code class="docutils literal notranslate"><span class="pre">pythonpath</span> <span class="pre">=</span> <span class="pre">src</span></code> in <code class="docutils literal notranslate"><span class="pre">pytest.ini</span></code>
+applies. To run a script by hand, <code class="docutils literal notranslate"><span class="pre">cd</span> <span class="pre">src</span></code> first or call <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">src/&lt;script&gt;.py</span></code>.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">psql</span></code> not found by <code class="docutils literal notranslate"><span class="pre">setup_db.*</span></code></dt><dd><p>Add PostgreSQL’s <code class="docutils literal notranslate"><span class="pre">bin</span></code> folder to <code class="docutils literal notranslate"><span class="pre">PATH</span></code>, or set <code class="docutils literal notranslate"><span class="pre">PSQL</span></code> to the full path of
+<code class="docutils literal notranslate"><span class="pre">psql</span></code>.</p>
+</dd>
+<dt>CI: <code class="docutils literal notranslate"><span class="pre">connection</span> <span class="pre">refused</span></code> on port 5432</dt><dd><p>The Postgres service container was not healthy yet. The workflow’s
+<code class="docutils literal notranslate"><span class="pre">--health-cmd</span> <span class="pre">pg_isready</span></code> check normally prevents this, so re-run the job.</p>
+</dd>
+<dt>Pull Data reports “blocked or rejected the request (HTTP 403)”</dt><dd><p>Grad Café refused the request, or <code class="docutils literal notranslate"><span class="pre">robots.txt</span></code> disallows the page. Whatever was
+fetched before the error is kept. Try again later. The analysis still works on the
+existing data.</p>
+</dd>
+<dt>Rows added by Pull Data have empty <code class="docutils literal notranslate"><span class="pre">llm_generated_*</span></code> columns</dt><dd><p>This is expected. The local LLM is too slow to run inside a button click. Run
+<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">src/run_llm_standardization.py</span></code> and then <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">src/load_data.py</span></code> to
+fill them. The upsert only fills empty LLM columns.</p>
+</dd>
+</dl>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="testing.html" class="btn btn-neutral float-left" title="Testing guide" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="api.html" class="btn btn-neutral float-right" title="API reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Caleb Gevertz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,229 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>db_config &mdash; Grad Café Analytics</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=9f5556dd"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            Grad Café Analytics
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview and setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../operations.html">Operational notes</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">Grad Café Analytics</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Module code</a></li>
+      <li class="breadcrumb-item active">db_config</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for db_config</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Database connection settings, read from environment variables only.</span>
+
+<span class="sd">Credentials never live in the repository. The connection is configured by one variable:</span>
+
+<span class="sd">    DATABASE_URL   e.g. postgresql://gradcafe_app:&lt;password&gt;@localhost:5432/gradcafe</span>
+
+<span class="sd">When ``DATABASE_URL`` is not set, the URL is assembled from the standard libpq</span>
+<span class="sd">variables instead, so Module 3 setups keep working unchanged:</span>
+
+<span class="sd">    PGHOST      (default: localhost)</span>
+<span class="sd">    PGPORT      (default: 5432)</span>
+<span class="sd">    PGDATABASE  (default: gradcafe)</span>
+<span class="sd">    PGUSER</span>
+<span class="sd">    PGPASSWORD</span>
+
+<span class="sd">``connect()`` serves the raw-SQL code (psycopg 3) and ``sqlalchemy_url()`` serves the</span>
+<span class="sd">ORM code, so both always talk to the same database with the same settings. Both accept</span>
+<span class="sd">an explicit URL, which is how the Flask app factory and the tests override the default.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Optional</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">psycopg</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sqlalchemy.engine</span><span class="w"> </span><span class="kn">import</span> <span class="n">URL</span><span class="p">,</span> <span class="n">make_url</span>
+
+<span class="n">DEFAULT_HOST</span> <span class="o">=</span> <span class="s2">"localhost"</span>
+<span class="n">DEFAULT_PORT</span> <span class="o">=</span> <span class="mi">5432</span>
+<span class="n">DEFAULT_DATABASE</span> <span class="o">=</span> <span class="s2">"gradcafe"</span>
+
+<span class="c1"># Optional git-ignored file of KEY=VALUE lines in the module_4 folder (one level above</span>
+<span class="c1"># src/). Real environment variables always win; the file only supplies missing values.</span>
+<span class="n">ENV_FILE</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parents</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">/</span> <span class="s2">".env"</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_read_env_file</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Parse KEY=VALUE lines from ENV_FILE (comments and blank lines ignored)."""</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">ENV_FILE</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="k">return</span> <span class="p">{}</span>
+    <span class="n">values</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">ENV_FILE</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span><span class="o">.</span><span class="n">splitlines</span><span class="p">():</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span> <span class="ow">or</span> <span class="n">line</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"#"</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">"="</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">line</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="n">key</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">partition</span><span class="p">(</span><span class="s2">"="</span><span class="p">)</span>
+        <span class="n">values</span><span class="p">[</span><span class="n">key</span><span class="o">.</span><span class="n">strip</span><span class="p">()]</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">values</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_setting</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">file_values</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="n">default</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Environment first, then the .env file, then the default."""</span>
+    <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">file_values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">default</span><span class="p">))</span>
+
+
+<div class="viewcode-block" id="connection_settings">
+<a class="viewcode-back" href="../api.html#db_config.connection_settings">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">connection_settings</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""PG* settings used when DATABASE_URL is absent; user/password are None when unset."""</span>
+    <span class="n">file_values</span> <span class="o">=</span> <span class="n">_read_env_file</span><span class="p">()</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">"host"</span><span class="p">:</span> <span class="n">_setting</span><span class="p">(</span><span class="s2">"PGHOST"</span><span class="p">,</span> <span class="n">file_values</span><span class="p">,</span> <span class="n">DEFAULT_HOST</span><span class="p">),</span>
+        <span class="s2">"port"</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">_setting</span><span class="p">(</span><span class="s2">"PGPORT"</span><span class="p">,</span> <span class="n">file_values</span><span class="p">,</span> <span class="n">DEFAULT_PORT</span><span class="p">)),</span>
+        <span class="s2">"dbname"</span><span class="p">:</span> <span class="n">_setting</span><span class="p">(</span><span class="s2">"PGDATABASE"</span><span class="p">,</span> <span class="n">file_values</span><span class="p">,</span> <span class="n">DEFAULT_DATABASE</span><span class="p">),</span>
+        <span class="s2">"user"</span><span class="p">:</span> <span class="n">_setting</span><span class="p">(</span><span class="s2">"PGUSER"</span><span class="p">,</span> <span class="n">file_values</span><span class="p">),</span>
+        <span class="s2">"password"</span><span class="p">:</span> <span class="n">_setting</span><span class="p">(</span><span class="s2">"PGPASSWORD"</span><span class="p">,</span> <span class="n">file_values</span><span class="p">),</span>
+    <span class="p">}</span></div>
+
+
+
+<div class="viewcode-block" id="database_url">
+<a class="viewcode-back" href="../api.html#db_config.database_url">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">database_url</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""The PostgreSQL URL: ``DATABASE_URL`` if set, otherwise built from the PG* settings."""</span>
+    <span class="n">explicit</span> <span class="o">=</span> <span class="n">_setting</span><span class="p">(</span><span class="s2">"DATABASE_URL"</span><span class="p">,</span> <span class="n">_read_env_file</span><span class="p">())</span>
+    <span class="k">if</span> <span class="n">explicit</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">explicit</span>
+    <span class="n">settings</span> <span class="o">=</span> <span class="n">connection_settings</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">URL</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+        <span class="n">drivername</span><span class="o">=</span><span class="s2">"postgresql"</span><span class="p">,</span>
+        <span class="n">username</span><span class="o">=</span><span class="n">settings</span><span class="p">[</span><span class="s2">"user"</span><span class="p">],</span>
+        <span class="n">password</span><span class="o">=</span><span class="n">settings</span><span class="p">[</span><span class="s2">"password"</span><span class="p">],</span>
+        <span class="n">host</span><span class="o">=</span><span class="n">settings</span><span class="p">[</span><span class="s2">"host"</span><span class="p">],</span>
+        <span class="n">port</span><span class="o">=</span><span class="n">settings</span><span class="p">[</span><span class="s2">"port"</span><span class="p">],</span>
+        <span class="n">database</span><span class="o">=</span><span class="n">settings</span><span class="p">[</span><span class="s2">"dbname"</span><span class="p">],</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">render_as_string</span><span class="p">(</span><span class="n">hide_password</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="with_database">
+<a class="viewcode-back" href="../api.html#db_config.with_database">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">with_database</span><span class="p">(</span><span class="n">url</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">database</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""The same server and credentials as ``url`` but a different database name."""</span>
+    <span class="k">return</span> <span class="n">make_url</span><span class="p">(</span><span class="n">url</span><span class="p">)</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">database</span><span class="o">=</span><span class="n">database</span><span class="p">)</span><span class="o">.</span><span class="n">render_as_string</span><span class="p">(</span><span class="n">hide_password</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_libpq_url</span><span class="p">(</span><span class="n">url</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Strip a SQLAlchemy driver suffix (``postgresql+psycopg``) so libpq accepts the URL."""</span>
+    <span class="n">parsed</span> <span class="o">=</span> <span class="n">make_url</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+    <span class="k">if</span> <span class="s2">"+"</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">parsed</span><span class="o">.</span><span class="n">drivername</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">url</span>
+    <span class="k">return</span> <span class="n">parsed</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">drivername</span><span class="o">=</span><span class="s2">"postgresql"</span><span class="p">)</span><span class="o">.</span><span class="n">render_as_string</span><span class="p">(</span><span class="n">hide_password</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="connect">
+<a class="viewcode-back" href="../api.html#db_config.connect">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">connect</span><span class="p">(</span><span class="n">url</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">psycopg</span><span class="o">.</span><span class="n">Connection</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Open a psycopg 3 connection to ``url`` (default: ``database_url()``)."""</span>
+    <span class="k">return</span> <span class="n">psycopg</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">_libpq_url</span><span class="p">(</span><span class="n">url</span> <span class="ow">or</span> <span class="n">database_url</span><span class="p">()),</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="sqlalchemy_url">
+<a class="viewcode-back" href="../api.html#db_config.sqlalchemy_url">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">sqlalchemy_url</span><span class="p">(</span><span class="n">url</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">URL</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""SQLAlchemy URL for the same database, always using the psycopg 3 driver."""</span>
+    <span class="k">return</span> <span class="n">make_url</span><span class="p">(</span><span class="n">url</span> <span class="ow">or</span> <span class="n">database_url</span><span class="p">())</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">drivername</span><span class="o">=</span><span class="s2">"postgresql+psycopg"</span><span class="p">)</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Caleb Gevertz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

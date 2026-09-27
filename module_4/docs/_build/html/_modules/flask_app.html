@@ -1,0 +1,339 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>flask_app &mdash; Grad Café Analytics</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=9f5556dd"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            Grad Café Analytics
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview and setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../operations.html">Operational notes</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">Grad Café Analytics</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Module code</a></li>
+      <li class="breadcrumb-item active">flask_app</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for flask_app</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Flask front end for the Grad Cafe analysis.</span>
+
+<span class="sd">Routes</span>
+<span class="sd">------</span>
+
+<span class="sd">``GET /analysis``</span>
+<span class="sd">    The analysis page (``/`` serves the same page).</span>
+<span class="sd">``POST /pull-data``</span>
+<span class="sd">    Start a pull of new Grad Cafe entries: ``202 {"ok": true}`` when it starts in the</span>
+<span class="sd">    background, or ``200`` with the outcome when the app is configured to pull</span>
+<span class="sd">    synchronously. ``409 {"busy": true}`` while a pull is already running.</span>
+<span class="sd">``POST /update-analysis``</span>
+<span class="sd">    Re-run the analysis queries: ``200 {"ok": true}``, or ``409 {"busy": true}`` (and no</span>
+<span class="sd">    update) while a pull is running. Never scrapes.</span>
+<span class="sd">``GET /status``</span>
+<span class="sd">    JSON the page polls to show pull progress.</span>
+
+<span class="sd">``create_app`` is a factory, and every collaborator can be replaced. This is how the</span>
+<span class="sd">tests run the whole app without the network and against a scratch database:</span>
+
+<span class="sd">* ``config``: overrides such as ``DATABASE_URL`` or ``PULL_IN_BACKGROUND``.</span>
+<span class="sd">* ``scraper``: ``scraper(known_ids, max_pages) -&gt; records`` (default: the Module 2</span>
+<span class="sd">  scraper against Grad Cafe).</span>
+<span class="sd">* ``loader``: ``loader(conn, records) -&gt; LoadResult`` (default:</span>
+<span class="sd">  ``load_data.load_records``).</span>
+<span class="sd">* ``query_fn``: ``query_fn(session) -&gt; dict`` (default: ``orm_queries.get_analysis``).</span>
+<span class="sd">* ``session_factory``: SQLAlchemy session factory (default: built from ``DATABASE_URL``).</span>
+<span class="sd">* ``pull_manager``: the busy-state owner (default: a new ``PullManager``).</span>
+
+<span class="sd">All database reads for the page go through ``orm_queries`` (the ``Applicant`` model);</span>
+<span class="sd">this module contains no SQL.</span>
+
+<span class="sd">Run it with ``python flask_app.py`` or ``flask --app flask_app run`` from ``src/``, after</span>
+<span class="sd">setting ``DATABASE_URL`` (see ``db_config.py``).</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">datetime</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">secrets</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">threading</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">flask</span><span class="w"> </span><span class="kn">import</span> <span class="n">Flask</span><span class="p">,</span> <span class="n">jsonify</span><span class="p">,</span> <span class="n">render_template</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sqlalchemy.exc</span><span class="w"> </span><span class="kn">import</span> <span class="n">OperationalError</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sqlalchemy.orm</span><span class="w"> </span><span class="kn">import</span> <span class="n">Session</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">orm_queries</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pull_data</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">db_config</span><span class="w"> </span><span class="kn">import</span> <span class="n">database_url</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">load_data</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_records</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">models</span><span class="w"> </span><span class="kn">import</span> <span class="n">make_session_factory</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pull_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">PullManager</span>
+
+<span class="n">BUSY_MESSAGE</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">"New data is currently being retrieved from Grad Café. Please wait for the pull to "</span>
+    <span class="s2">"finish, then click Update Analysis to include the new records."</span>
+<span class="p">)</span>
+<span class="n">DB_ERROR_MESSAGE</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">"The page could not connect to the database. Check that PostgreSQL is running and "</span>
+    <span class="s2">"that DATABASE_URL is set."</span>
+<span class="p">)</span>
+
+
+<div class="viewcode-block" id="AnalysisCache">
+<a class="viewcode-back" href="../api.html#flask_app.AnalysisCache">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">AnalysisCache</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""The most recent analysis snapshot shown on the page (thread-safe).</span>
+
+<span class="sd">    ``GET /analysis`` renders the snapshot; ``POST /update-analysis`` replaces it. The</span>
+<span class="sd">    snapshot is computed on first use, so a fresh server shows current data.</span>
+<span class="sd">    """</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">session_factory</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[],</span> <span class="n">Session</span><span class="p">],</span>
+        <span class="n">query_fn</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">Session</span><span class="p">],</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_session_factory</span> <span class="o">=</span> <span class="n">session_factory</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_query_fn</span> <span class="o">=</span> <span class="n">query_fn</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">analysis</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">updated_at</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="AnalysisCache.refresh">
+<a class="viewcode-back" href="../api.html#flask_app.AnalysisCache.refresh">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">refresh</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">"""Run the queries now and store the result as the current snapshot."""</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_session_factory</span><span class="p">()</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
+            <span class="n">analysis</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_query_fn</span><span class="p">(</span><span class="n">session</span><span class="p">)</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">analysis</span> <span class="o">=</span> <span class="n">analysis</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">updated_at</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">analysis</span></div>
+
+
+<div class="viewcode-block" id="AnalysisCache.current">
+<a class="viewcode-back" href="../api.html#flask_app.AnalysisCache.current">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">current</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">"""The stored snapshot, computing it first if there is none yet."""</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="n">analysis</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">analysis</span>
+        <span class="k">return</span> <span class="n">analysis</span> <span class="k">if</span> <span class="n">analysis</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">refresh</span><span class="p">()</span></div>
+</div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_busy_response</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""The JSON body and status used whenever a pull is already in progress."""</span>
+    <span class="k">return</span> <span class="n">jsonify</span><span class="p">(</span><span class="n">ok</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">busy</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">message</span><span class="o">=</span><span class="n">BUSY_MESSAGE</span><span class="p">),</span> <span class="mi">409</span>
+
+
+<div class="viewcode-block" id="create_app">
+<a class="viewcode-back" href="../api.html#flask_app.create_app">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_app</span><span class="p">(</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">scraper</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">pull_data</span><span class="o">.</span><span class="n">ScrapeFunction</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">loader</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">pull_data</span><span class="o">.</span><span class="n">LoadFunction</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">query_fn</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Callable</span><span class="p">[[</span><span class="n">Session</span><span class="p">],</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">session_factory</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Callable</span><span class="p">[[],</span> <span class="n">Session</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">pull_manager</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">PullManager</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Flask</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Build the Flask app; every collaborator can be replaced (see the module docstring)."""</span>
+    <span class="n">app</span> <span class="o">=</span> <span class="n">Flask</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+    <span class="n">app</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+        <span class="c1"># Only signs the session cookie; a fresh random key per process is fine.</span>
+        <span class="n">SECRET_KEY</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"FLASK_SECRET_KEY"</span><span class="p">)</span> <span class="ow">or</span> <span class="n">secrets</span><span class="o">.</span><span class="n">token_hex</span><span class="p">(</span><span class="mi">16</span><span class="p">),</span>
+        <span class="n">DATABASE_URL</span><span class="o">=</span><span class="n">database_url</span><span class="p">(),</span>
+        <span class="n">PULL_IN_BACKGROUND</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">PULL_MAX_PAGES</span><span class="o">=</span><span class="n">pull_data</span><span class="o">.</span><span class="n">DEFAULT_MAX_PAGES</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">app</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">config</span> <span class="ow">or</span> <span class="p">{})</span>
+
+    <span class="n">manager</span> <span class="o">=</span> <span class="n">pull_manager</span> <span class="ow">or</span> <span class="n">PullManager</span><span class="p">()</span>
+    <span class="n">sessions</span> <span class="o">=</span> <span class="n">session_factory</span> <span class="ow">or</span> <span class="n">make_session_factory</span><span class="p">(</span><span class="n">app</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">"DATABASE_URL"</span><span class="p">])</span>
+    <span class="n">cache</span> <span class="o">=</span> <span class="n">AnalysisCache</span><span class="p">(</span><span class="n">sessions</span><span class="p">,</span> <span class="n">query_fn</span> <span class="ow">or</span> <span class="n">orm_queries</span><span class="o">.</span><span class="n">get_analysis</span><span class="p">)</span>
+    <span class="n">scrape_fn</span> <span class="o">=</span> <span class="n">scraper</span> <span class="ow">or</span> <span class="n">pull_data</span><span class="o">.</span><span class="n">default_scraper</span>
+    <span class="n">load_fn</span> <span class="o">=</span> <span class="n">loader</span> <span class="ow">or</span> <span class="n">load_records</span>
+    <span class="c1"># Exposed so tests and tooling can observe the app's state.</span>
+    <span class="n">app</span><span class="o">.</span><span class="n">extensions</span><span class="p">[</span><span class="s2">"gradcafe"</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">"pull_manager"</span><span class="p">:</span> <span class="n">manager</span><span class="p">,</span>
+        <span class="s2">"analysis_cache"</span><span class="p">:</span> <span class="n">cache</span><span class="p">,</span>
+        <span class="s2">"session_factory"</span><span class="p">:</span> <span class="n">sessions</span><span class="p">,</span>
+    <span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">pull_job</span><span class="p">(</span><span class="n">report</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">str</span><span class="p">],</span> <span class="kc">None</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">pull_data</span><span class="o">.</span><span class="n">PullResult</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""One pull against this app's database with this app's scraper and loader."""</span>
+        <span class="k">return</span> <span class="n">pull_data</span><span class="o">.</span><span class="n">run_pull</span><span class="p">(</span>
+            <span class="n">app</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">"DATABASE_URL"</span><span class="p">],</span>
+            <span class="n">scrape_fn</span><span class="o">=</span><span class="n">scrape_fn</span><span class="p">,</span>
+            <span class="n">loader</span><span class="o">=</span><span class="n">load_fn</span><span class="p">,</span>
+            <span class="n">report</span><span class="o">=</span><span class="n">report</span><span class="p">,</span>
+            <span class="n">max_pages</span><span class="o">=</span><span class="n">app</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">"PULL_MAX_PAGES"</span><span class="p">],</span>
+        <span class="p">)</span>
+
+    <span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"/"</span><span class="p">)</span>
+    <span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"/analysis"</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">analysis</span><span class="p">():</span>
+<span class="w">        </span><span class="sd">"""Render the analysis page from the current snapshot."""</span>
+        <span class="n">page</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">"pulling"</span><span class="p">:</span> <span class="n">manager</span><span class="o">.</span><span class="n">is_running</span><span class="p">(),</span>
+            <span class="s2">"last_pull_message"</span><span class="p">:</span> <span class="n">manager</span><span class="o">.</span><span class="n">last_message</span><span class="p">,</span>
+            <span class="s2">"last_pull_succeeded"</span><span class="p">:</span> <span class="n">manager</span><span class="o">.</span><span class="n">last_succeeded</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">cache</span><span class="o">.</span><span class="n">current</span><span class="p">()</span>
+        <span class="k">except</span> <span class="n">OperationalError</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">render_template</span><span class="p">(</span><span class="s2">"analysis.html"</span><span class="p">,</span> <span class="n">analysis</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">db_error</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="o">**</span><span class="n">page</span><span class="p">),</span> <span class="mi">503</span>
+        <span class="k">return</span> <span class="n">render_template</span><span class="p">(</span>
+            <span class="s2">"analysis.html"</span><span class="p">,</span>
+            <span class="n">analysis</span><span class="o">=</span><span class="n">data</span><span class="p">,</span>
+            <span class="n">updated_at</span><span class="o">=</span><span class="n">cache</span><span class="o">.</span><span class="n">updated_at</span><span class="p">,</span>
+            <span class="n">db_error</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="o">**</span><span class="n">page</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="nd">@app</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"/pull-data"</span><span class="p">,</span> <span class="n">endpoint</span><span class="o">=</span><span class="s2">"pull_data"</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">pull_data_route</span><span class="p">():</span>
+<span class="w">        </span><span class="sd">"""Start a pull, or refuse with 409 while one is running."""</span>
+        <span class="k">if</span> <span class="n">app</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">"PULL_IN_BACKGROUND"</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">manager</span><span class="o">.</span><span class="n">start</span><span class="p">(</span><span class="n">pull_job</span><span class="p">):</span>
+                <span class="k">return</span> <span class="n">_busy_response</span><span class="p">()</span>
+            <span class="k">return</span> <span class="n">jsonify</span><span class="p">(</span>
+                <span class="n">ok</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                <span class="n">busy</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="p">(</span>
+                    <span class="s2">"Pull Data started. Grad Café is being checked for new results in the "</span>
+                    <span class="s2">"background; this may take a little while."</span>
+                <span class="p">),</span>
+            <span class="p">),</span> <span class="mi">202</span>
+
+        <span class="n">outcome</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">pull_job</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">outcome</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_busy_response</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">outcome</span><span class="o">.</span><span class="n">succeeded</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">jsonify</span><span class="p">(</span><span class="n">ok</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">busy</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="n">outcome</span><span class="o">.</span><span class="n">message</span><span class="p">),</span> <span class="mi">500</span>
+        <span class="k">return</span> <span class="n">jsonify</span><span class="p">(</span><span class="n">ok</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">busy</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">added</span><span class="o">=</span><span class="n">outcome</span><span class="o">.</span><span class="n">added</span><span class="p">,</span> <span class="n">message</span><span class="o">=</span><span class="n">outcome</span><span class="o">.</span><span class="n">message</span><span class="p">),</span> <span class="mi">200</span>
+
+    <span class="nd">@app</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"/update-analysis"</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">update_analysis</span><span class="p">():</span>
+<span class="w">        </span><span class="sd">"""Re-query the database, unless a pull is in progress (then do nothing)."""</span>
+        <span class="k">if</span> <span class="n">manager</span><span class="o">.</span><span class="n">is_running</span><span class="p">():</span>
+            <span class="k">return</span> <span class="n">_busy_response</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">cache</span><span class="o">.</span><span class="n">refresh</span><span class="p">()</span>
+        <span class="k">except</span> <span class="n">OperationalError</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">jsonify</span><span class="p">(</span><span class="n">ok</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">busy</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="n">DB_ERROR_MESSAGE</span><span class="p">),</span> <span class="mi">503</span>
+        <span class="k">return</span> <span class="n">jsonify</span><span class="p">(</span>
+            <span class="n">ok</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">busy</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">total_entries</span><span class="o">=</span><span class="n">data</span><span class="p">[</span><span class="s2">"total_entries"</span><span class="p">],</span>
+            <span class="n">message</span><span class="o">=</span><span class="s2">"Analysis updated using the latest data in the database."</span><span class="p">,</span>
+        <span class="p">),</span> <span class="mi">200</span>
+
+    <span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"/status"</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">status</span><span class="p">():</span>
+<span class="w">        </span><span class="sd">"""Current pull state for the page's progress banner."""</span>
+        <span class="k">return</span> <span class="n">jsonify</span><span class="p">(</span>
+            <span class="n">running</span><span class="o">=</span><span class="n">manager</span><span class="o">.</span><span class="n">is_running</span><span class="p">(),</span>
+            <span class="n">message</span><span class="o">=</span><span class="n">manager</span><span class="o">.</span><span class="n">last_message</span><span class="p">,</span>
+            <span class="n">succeeded</span><span class="o">=</span><span class="n">manager</span><span class="o">.</span><span class="n">last_succeeded</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">app</span></div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">"__main__"</span><span class="p">:</span>
+    <span class="n">create_app</span><span class="p">()</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">debug</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Caleb Gevertz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
