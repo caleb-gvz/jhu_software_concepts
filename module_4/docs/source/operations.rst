@@ -54,12 +54,19 @@ Database tests are skipped and coverage fails
    safe to re-run and resets the password.
 
 Coverage reports ``No data to report`` or measures nothing
-   pytest was started outside ``module_4``. ``--cov=src`` is relative to the current
-   directory, so ``cd module_4`` first.
+   pytest was started from a folder other than ``module_4`` or the repository root, so
+   neither ``--cov`` path exists. Run ``pytest -m "..."`` from ``module_4`` or
+   ``pytest module_4 -m "..."`` from the repository root.
+
+``CoverageWarning: Module src was never imported`` (or ``module_4/src``)
+   This is expected and harmless. ``pytest.ini`` lists both coverage paths so either
+   run location works, and the path that does not exist from where you ran pytest
+   triggers the warning.
 
 ``ModuleNotFoundError: flask_app`` (or another app module)
-   Same cause: run pytest from ``module_4`` so ``pythonpath = src`` in ``pytest.ini``
-   applies. To run a script by hand, ``cd src`` first or call ``python src/<script>.py``.
+   pytest did not load ``module_4/pytest.ini``, whose ``pythonpath = src`` makes the
+   app modules importable. Use one of the two commands above. To run a script by hand,
+   ``cd src`` first or call ``python src/<script>.py``.
 
 ``psql`` not found by ``setup_db.*``
    Add PostgreSQL's ``bin`` folder to ``PATH``, or set ``PSQL`` to the full path of

@@ -143,5 +143,5 @@ def main() -> int:
     return 2 if result.error else 0
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover  (only calls main(), which is tested)
     sys.exit(main())

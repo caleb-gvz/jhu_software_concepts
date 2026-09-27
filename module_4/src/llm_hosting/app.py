@@ -363,5 +363,5 @@ def main(argv: List[str] | None = None) -> None:
         )
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover  (only calls main(), which is tested)
     main()

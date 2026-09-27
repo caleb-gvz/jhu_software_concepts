@@ -2,7 +2,9 @@ $ pytest -m "web or buttons or analysis or db or integration"
 ........................................................................ [ 29%]
 ........................................................................ [ 58%]
 ........................................................................ [ 87%]
-...............................                                          [100%]
+...............................C:\Users\Caleb\jhu_software_concepts\module_4\.venv\Lib\site-packages\coverage\inorout.py:558: CoverageWarning: Module module_4/src was never imported. (module-not-imported); see https://coverage.readthedocs.io/en/7.16.1/messages.html#warning-module-not-imported
+  self.warn(f"Module {pkg} was never imported.", slug="module-not-imported")
+                                          [100%]
 =============================== tests coverage ================================
 _______________ coverage: platform win32, python 3.14.3-final-0 _______________
 
@@ -27,4 +29,4 @@ src\scrape.py                      212      0   100%
 --------------------------------------------------------------
 TOTAL                             1337      0   100%
 Required test coverage of 100% reached. Total coverage: 100.00%
-247 passed in 19.23s
+247 passed in 19.37s

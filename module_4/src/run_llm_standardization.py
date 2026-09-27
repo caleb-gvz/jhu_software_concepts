@@ -163,5 +163,5 @@ def main(argv: Optional[List[str]] = None) -> None:
     print(f"Wrote {total} standardized records to {final_path}")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover  (only calls main(), which is tested)
     main()

@@ -30,7 +30,6 @@ Folder layout
      tests/            the whole pytest suite (plus doubles.py and fixtures/)
      docs/             this Sphinx project (source/ and the built _build/html/)
      pytest.ini        markers + coverage gate
-     .coveragerc       coverage settings
      requirements.txt
      README.md
      coverage_summary.txt

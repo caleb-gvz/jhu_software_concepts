@@ -13,9 +13,13 @@ From the ``module_4`` folder:
    pytest -m "buttons or integration"
    pytest tests/test_buttons.py -k busy --no-cov   # one area, without the coverage gate
 
-``pytest.ini`` adds ``--cov=src --cov-report=term-missing --cov-fail-under=100``, so a
-full run fails unless every line under ``src/`` is covered. Run pytest from
-``module_4`` because the coverage path is relative to that folder. The suite takes
+``pytest.ini`` adds ``--cov=module_4/src --cov=src --cov-report=term-missing
+--cov-fail-under=100``, so a full run fails unless every line under ``src/`` is covered.
+Both coverage paths are listed so the same command works from ``module_4`` and, as
+``pytest module_4 -m "..."``, from the repository root. Coverage prints a harmless
+"never imported" warning for whichever path does not exist from where you ran it. The
+only lines excluded from coverage are the ``if __name__ == "__main__":`` guards
+(``# pragma: no cover``), which only call a ``main()`` that is tested directly. The suite takes
 about 20 seconds. It never contacts Grad Café and never calls ``sleep()``.
 
 Database-backed tests use a scratch database: ``TEST_DATABASE_URL``, or else

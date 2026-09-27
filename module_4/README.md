@@ -28,7 +28,7 @@ module_4/
                   pull_manager.py, templates/, static/, llm_hosting/, data files
   tests/          every test (+ conftest.py fixtures, doubles.py test doubles, fixtures/)
   docs/           Sphinx project: source/ (conf.py + pages) and _build/html/ (built site)
-  pytest.ini      markers + coverage gate      .coveragerc   coverage settings
+  pytest.ini      markers + coverage gate (100% of src/)
   requirements.txt  README.md  coverage_summary.txt  actions_success.png  github.txt
 ```
 
@@ -89,8 +89,10 @@ pytest -m "web or buttons or analysis or db or integration"
 ```
 
 This runs the entire suite: 247 tests in about 20 seconds, with no network access and
-no `sleep()`. It fails if coverage of `src/` drops below 100%. Run it from `module_4`,
-because `--cov=src` and `pythonpath = src` are relative to that folder. The database
+no `sleep()`. It fails if coverage of `src/` drops below 100%. It also works from the
+repository root as `pytest module_4 -m "..."`: `pytest.ini` lists both `--cov=module_4/src`
+(the assignment's example) and `--cov=src`, and coverage prints a harmless "never imported"
+warning for whichever path doesn't exist from where you ran it. The database
 tests use `gradcafe_test` (or `TEST_DATABASE_URL`).
 
 ## View or rebuild the documentation
@@ -169,8 +171,8 @@ Tests: `test_db_insert.py::test_a_null_record_is_reported_and_the_valid_ones_sti
   `llama_cpp` / `huggingface_hub` modules, and a patched `subprocess.Popen`. No live
   network, model or subprocess is involved.
 - **Coverage exclusion.** The only line excluded from coverage is the
-  `if __name__ == "__main__":` guard, which only calls `main()`. `main()` itself is
-  tested directly (see `.coveragerc`).
+  `if __name__ == "__main__":` guard, marked `# pragma: no cover`, which only calls
+  `main()`. `main()` itself is tested directly.
 
 ### CI
 `.github/workflows/tests.yml` is at the repository root. It:
@@ -195,8 +197,7 @@ the LLM model, and LLM work files.
   `src/run_llm_standardization.py` and then `src/load_data.py` fills them.
 - **Pull size limit.** Pull Data reads at most the 20 newest survey pages (~400 entries)
   per click, and stops (keeping what it fetched) if Grad Café blocks the request.
-- **Run location.** `pytest` must be run from `module_4`. The assignment's example
-  `pytest.ini` uses `--cov=module_4/src`, which only works from the repository root. I
-  used `--cov=src` so the documented `cd module_4 && pytest ...` command, the CI workflow
-  and the docs all agree.
+- **Coverage warning.** Every run prints one coverage warning, `Module src was never
+  imported` or `Module module_4/src was never imported`. It comes from the second
+  `--cov` path that makes both run locations work, and it does not affect the result.
 - **Platform testing.** Tested locally on Windows and in CI on Ubuntu.

@@ -24,7 +24,7 @@ DELIVERABLES = (
     "src/load_data.py", "src/flask_app.py", "src/templates/analysis.html", "src/static/style.css",
     "src/llm_hosting/app.py", "src/llm_hosting/requirements.txt", "tests/test_buttons.py",
     "tests/fixtures/page.html", "docs/source/conf.py", "docs/_build/html/index.html",
-    "README.md", "requirements.txt", "pytest.ini", ".coveragerc", "coverage_summary.txt",
+    "README.md", "requirements.txt", "pytest.ini", "coverage_summary.txt",
     "actions_success.png", "github.txt", ".env.example", ".gitignore",
 )
 

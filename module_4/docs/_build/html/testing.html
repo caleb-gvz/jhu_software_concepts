@@ -97,9 +97,13 @@ pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">"button
 pytest<span class="w"> </span>tests/test_buttons.py<span class="w"> </span>-k<span class="w"> </span>busy<span class="w"> </span>--no-cov<span class="w">   </span><span class="c1"># one area, without the coverage gate</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">pytest.ini</span></code> adds <code class="docutils literal notranslate"><span class="pre">--cov=src</span> <span class="pre">--cov-report=term-missing</span> <span class="pre">--cov-fail-under=100</span></code>, so a
-full run fails unless every line under <code class="docutils literal notranslate"><span class="pre">src/</span></code> is covered. Run pytest from
-<code class="docutils literal notranslate"><span class="pre">module_4</span></code> because the coverage path is relative to that folder. The suite takes
+<p><code class="docutils literal notranslate"><span class="pre">pytest.ini</span></code> adds <code class="docutils literal notranslate"><span class="pre">--cov=module_4/src</span> <span class="pre">--cov=src</span> <span class="pre">--cov-report=term-missing</span>
+<span class="pre">--cov-fail-under=100</span></code>, so a full run fails unless every line under <code class="docutils literal notranslate"><span class="pre">src/</span></code> is covered.
+Both coverage paths are listed so the same command works from <code class="docutils literal notranslate"><span class="pre">module_4</span></code> and, as
+<code class="docutils literal notranslate"><span class="pre">pytest</span> <span class="pre">module_4</span> <span class="pre">-m</span> <span class="pre">&quot;...&quot;</span></code>, from the repository root. Coverage prints a harmless
+“never imported” warning for whichever path does not exist from where you ran it. The
+only lines excluded from coverage are the <code class="docutils literal notranslate"><span class="pre">if</span> <span class="pre">__name__</span> <span class="pre">==</span> <span class="pre">&quot;__main__&quot;:</span></code> guards
+(<code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">pragma:</span> <span class="pre">no</span> <span class="pre">cover</span></code>), which only call a <code class="docutils literal notranslate"><span class="pre">main()</span></code> that is tested directly. The suite takes
 about 20 seconds. It never contacts Grad Café and never calls <code class="docutils literal notranslate"><span class="pre">sleep()</span></code>.</p>
 <p>Database-backed tests use a scratch database: <code class="docutils literal notranslate"><span class="pre">TEST_DATABASE_URL</span></code>, or else
 <code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code> with the database name replaced by <code class="docutils literal notranslate"><span class="pre">gradcafe_test</span></code>. The tests

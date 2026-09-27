@@ -1,8 +1,0 @@
-[run]
-branch = False
-
-[report]
-# `if __name__ == "__main__":` only hands control to a main() function that the tests
-# call directly, so the guard line itself is the one thing never executed under pytest.
-exclude_also =
-    if __name__ == .__main__.:
