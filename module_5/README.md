@@ -146,7 +146,8 @@ cursor.execute(statement, limit_params(limit, query.params))   # run: statement 
   filled from a parameter dict. `term` and `status` are compared with `=`, not `LIKE`, so a user's
   `%` or `_` is an ordinary character and cannot widen the match.
 * *Identifiers* (table and column names): `sql.Identifier`. The only user-influenced identifier is the
-  `sort` column, and it must first be an exact member of the `SORTABLE_COLUMNS` allow-list.
+  `sort` column. It must exactly equal one of the allowed column names, and it only *selects* a pre-built
+  `sql.Identifier` from `SORT_IDENTIFIERS`; the request's text is never copied into the SQL.
 * *Direction* (`ASC`/`DESC`) is chosen from a boolean in code, never from request text.
 
 **LIMIT on every query** (`src/sql_safety.py`)
@@ -302,6 +303,26 @@ vulnerable paths found"), so no package had to be patched or removed. The full o
 `snyk_test_output.txt`. `snyk-analysis.png` is a terminal-style rendering of that exact saved output, captioned
 as such in the image itself. The pins are re-checked on every push by the CI `snyk` job once the `SNYK_TOKEN`
 secret is set, which would flag any vulnerability disclosed after this date.
+
+**Snyk Code (extra credit, `snyk code test src`).** The first scan found 9 issues: one **HIGH** SQL
+Injection and eight **LOW** Path Traversal notes. Evidence: `snyk_code_output.txt` and
+`snyk-code-analysis.png` (a captioned rendering of the saved output of the final scan).
+
+* *HIGH, `flask_app.py` line 136 (`GET /applicants` into `sql_safety.limited`).* The `sort` parameter was
+  already checked against an allow-list and quoted with `sql.Identifier`, so this was not exploitable, but
+  Snyk could not see the guard. To find out which parameter it was following, each request-derived argument
+  was replaced by a constant in a scratch copy and rescanned: only `sort` made the finding disappear. Snyk
+  follows a dictionary lookup by a tainted key, so the code now finds the trusted identifier by *comparing*
+  `sort` with each allowed column name and returning the pre-built constant
+  (`query_data._trusted_sort_identifier`). The request text is never copied into the SQL, which is also the
+  stronger design. The `term`/`status` conditions and the `ASC`/`DESC` keyword are likewise pre-built
+  constants. The rescan reports **0 HIGH, 0 MEDIUM**; the existing injection tests (and new ones for non-string
+  `sort` values) all pass.
+* *LOW, Path Traversal x8 (`clean.py`, `scrape.py`, `load_data.py`, `llm_hosting/app.py`).* These are
+  command-line tools whose `--input` / `--output` / `--data` arguments are file paths typed by the person
+  running the tool, who already has that file access; no web route accepts a path. Confining them would only
+  break legitimate use (for example loading data from another folder), so they are an accepted, documented
+  risk and the code is unchanged.
 
 ## Continuous integration
 

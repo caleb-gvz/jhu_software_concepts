@@ -1,0 +1,62 @@
+Testing src ...
+
+Open Issues
+
+ ✗ [LOW] Path Traversal
+   Finding ID: b29a037d-22b0-4ec8-8400-3947872d7301
+   Path: clean.py, line 77
+   Info: Unsanitized input from a command line argument flows into open, where it is used as a path. This may result in a Path Traversal vulnerability and allow an attacker to read arbitrary files.
+
+ ✗ [LOW] Path Traversal
+   Finding ID: ad6cd7d8-42da-4846-8f09-1fc9dcf7375c
+   Path: llm_hosting/app.py, line 302
+   Info: Unsanitized input from a command line argument flows into open, where it is used as a path. This may result in a Path Traversal vulnerability and allow an attacker to read arbitrary files.
+
+ ✗ [LOW] Path Traversal
+   Finding ID: ba698d41-48f0-4e89-8fb8-b8a0bd0dcc3f
+   Path: load_data.py, line 343
+   Info: Unsanitized input from a command line argument flows into open, where it is used as a path. This may result in a Path Traversal vulnerability and allow an attacker to read arbitrary files.
+
+ ✗ [LOW] Path Traversal
+   Finding ID: 96101d3c-7775-4cf1-8ff5-db49123c8b0e
+   Path: scrape.py, line 211
+   Info: Unsanitized input from a command line argument flows into open, where it is used as a path. This may result in a Path Traversal vulnerability and allow an attacker to read arbitrary files.
+
+ ✗ [LOW] Path Traversal
+   Finding ID: 6f298db9-da60-40d5-aadd-780296b2e788
+   Path: scrape.py, line 218
+   Info: Unsanitized input from a command line argument flows into open, where it is used as a path. This may result in a Path Traversal vulnerability and allow an attacker to read arbitrary files.
+
+ ✗ [LOW] Path Traversal
+   Finding ID: 52e3daa1-31d7-489b-822a-028ef48c3b9f
+   Path: clean.py, line 84
+   Info: Unsanitized input from a command line argument flows into json.dump, where it is used as a path. This may result in a Path Traversal vulnerability and allow an attacker to write arbitrary files.
+
+ ✗ [LOW] Path Traversal
+   Finding ID: 4d4e2c97-d4f4-400a-8b21-291ad3ffebc9
+   Path: scrape.py, line 204
+   Info: Unsanitized input from a command line argument flows into json.dump, where it is used as a path. This may result in a Path Traversal vulnerability and allow an attacker to write arbitrary files.
+
+ ✗ [LOW] Path Traversal
+   Finding ID: 16f69021-c207-4af1-87d5-96bb464424f9
+   Path: scrape.py, line 224
+   Info: Unsanitized input from a command line argument flows into json.dump, where it is used as a path. This may result in a Path Traversal vulnerability and allow an attacker to write arbitrary files.
+
+
+
+╭────────────────────────────────────────────────────╮
+│ Test Summary                                       │
+│                                                    │
+│   Organization:      caleb-gvz                     │
+│   Test type:         Static code analysis          │
+│   Project path:      src                           │
+│                                                    │
+│   Total issues:   8                                │
+│   Ignored issues: 0 [ 0 HIGH  0 MEDIUM  0 LOW ]    │
+│   Open issues:    8 [ 0 HIGH  0 MEDIUM  8 LOW ]    │
+╰────────────────────────────────────────────────────╯
+    
+💡 Tip
+
+   To view ignored issues, use the --include-ignores option.
+                                                            
