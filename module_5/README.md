@@ -297,7 +297,11 @@ with the evidence in `snyk-code-analysis.png`. Any vulnerability Snyk reports is
 action taken (upgrade the pinned version in `requirements.in`, regenerate `requirements.txt`, or remove the
 package).
 
-**Findings.** _Filled in after the scan; see the next commit._
+**Findings (2026-10-01).** `snyk test` tested all 37 pinned dependencies and reported **0 issues** ("no
+vulnerable paths found"), so no package had to be patched or removed. The full output is saved in
+`snyk_test_output.txt`. `snyk-analysis.png` is a terminal-style rendering of that exact saved output, captioned
+as such in the image itself. The pins are re-checked on every push by the CI `snyk` job once the `SNYK_TOKEN`
+secret is set, which would flag any vulnerability disclosed after this date.
 
 ## Continuous integration
 

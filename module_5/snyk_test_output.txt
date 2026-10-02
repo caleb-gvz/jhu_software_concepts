@@ -1,0 +1,17 @@
+Testing  (requirements.txt) ...
+                                                                     
+✔ Tested 37 dependencies for known issues, no vulnerable paths found.
+                                                                     
+╭───────────────────────────────────────────────────────────────────────╮
+│ Test Summary                                                          │
+│                                                                       │
+│   Organization:      caleb-gvz                                        │
+│   Test type:         open-source                                      │
+│   Project path:      C:\Users\Caleb\jhu_software_concepts\module_5    │
+│                                                                       │
+│   Total issues: 0                                                     │
+╰───────────────────────────────────────────────────────────────────────╯
+💡 Tip
+
+   To view ignored issues, use the --include-ignores option.
+                                                            
