@@ -30,7 +30,7 @@ from psycopg import sql
 
 from clean import clean_data
 from db_config import connect
-from load_data import APPLICANTS_TABLE, LoadResult, create_table, load_records
+from load_data import APPLICANTS_TABLE, LoadResult, load_records
 from scrape import ScrapeError, scrape_new_records
 from sql_safety import MAX_LIMIT, limit_params, limited
 
@@ -144,14 +144,15 @@ def run_pull(
     report: ReportFunction = lambda message: None,
     max_pages: int = DEFAULT_MAX_PAGES,
 ) -> PullResult:
-    """Open a connection, make sure the table exists, and run one pull.
+    """Open a connection and run one pull against the existing ``applicants`` table.
 
-    ``report`` receives short progress messages for the web page. Connection errors
+    The table is created ahead of time by ``src/db_setup.sql`` (as the owner role); the
+    pull itself only runs SELECT / INSERT / UPDATE, so it works under the least-privilege
+    role. ``report`` receives short progress messages for the web page. Connection errors
     and loader errors propagate to the caller (the PullManager records them).
     """
     report("Checking Grad Cafe for new entries...")
     with connect(database_url) as conn:
-        create_table(conn)
         return pull_new_data(conn, scrape_fn=scrape_fn, max_pages=max_pages, loader=loader)
 
 

@@ -400,7 +400,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     try:
         with connect() as conn:
-            create_table(conn)
+            # No create_table() here: the schema is provisioned once by src/db_setup.sql
+            # (as the owner role), so this command can run as the least-privilege role.
             if args.reset:
                 reset_table(conn)
             result = load_records(conn, records)

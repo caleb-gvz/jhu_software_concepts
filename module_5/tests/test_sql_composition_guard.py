@@ -9,6 +9,7 @@ Two kinds of check, so the rules cannot quietly erode:
 """
 
 import ast
+import json
 from pathlib import Path
 
 import psycopg
@@ -23,7 +24,9 @@ import query_data
 from db_config import connect
 from load_data import COLUMNS, load_records
 from models import make_engine
+from scrape import _parse_record
 from tests.test_query_data import SEED
+from tests.test_scrape import _record
 
 pytestmark = pytest.mark.db
 
@@ -162,3 +165,39 @@ def test_every_select_the_orm_layer_sends_carries_a_limit(db_url, test_conn):
     selects = _selects(statements)
     assert len(selects) >= 12                      # 11 questions plus the total-entries count
     assert [text for text in selects if "LIMIT" not in text.upper()] == []
+
+
+DDL_PREFIXES = ("CREATE", "ALTER", "DROP", "TRUNCATE", "GRANT", "REVOKE")
+
+
+def _ddl(statements):
+    return [text for text in statements if text.lstrip().upper().startswith(DDL_PREFIXES)]
+
+
+def test_a_web_pull_sends_no_ddl_because_the_runtime_role_may_not_run_any(
+    recording_conn, monkeypatch
+):
+    # The schema is provisioned once by the owner role (src/db_setup.sql); the Flask pull
+    # runs as the least-privilege role and must only SELECT / INSERT / UPDATE.
+    monkeypatch.setattr(pull_data, "connect", lambda url=None: recording_conn)
+    RecordingCursor.executed = []
+
+    result = pull_data.run_pull(scrape_fn=lambda known_ids, pages: [_parse_record(_record(1))])
+
+    assert result.added == 1
+    assert _ddl(RecordingCursor.executed) == []
+    assert any(text.startswith("INSERT INTO") for text in RecordingCursor.executed)
+
+
+def test_the_loader_command_sends_no_ddl_unless_asked_to_reset(
+    recording_conn, monkeypatch, tmp_path
+):
+    data = tmp_path / "data.json"
+    data.write_text(json.dumps([_record(1)]), encoding="utf-8")
+    monkeypatch.setattr(load_data, "connect", lambda url=None: recording_conn)
+    RecordingCursor.executed = []
+
+    exit_code = load_data.main(["--data", str(data), "--llm-data", str(tmp_path / "none.json")])
+
+    assert exit_code == 0
+    assert _ddl(RecordingCursor.executed) == []
