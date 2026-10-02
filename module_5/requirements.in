@@ -8,6 +8,7 @@
 beautifulsoup4>=4.12
 Flask>=3.0
 psycopg[binary]>=3.2
+reportlab>=4.0         # builds module_5_report.pdf (src/make_report.py)
 SQLAlchemy>=2.0
 
 # --- Tooling required by Module 5 -----------------------------------------------------

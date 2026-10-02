@@ -6,6 +6,8 @@ beautifulsoup4==4.15.0
     # via -r requirements.in
 blinker==1.9.0
     # via flask
+charset-normalizer==3.5.2
+    # via reportlab
 click==8.5.0
     # via flask
 colorama==0.4.6 ; sys_platform == 'win32'
@@ -37,6 +39,8 @@ mypy-extensions==1.1.0
     # via isort
 packaging==26.3
     # via pytest
+pillow==12.3.0
+    # via reportlab
 platformdirs==4.12.2
     # via pylint
 pluggy==1.6.0
@@ -60,6 +64,8 @@ pytest==9.1.1
     #   -r requirements.in
     #   pytest-cov
 pytest-cov==7.1.0
+    # via -r requirements.in
+reportlab==5.0.1
     # via -r requirements.in
 setuptools==84.0.0
     # via -r requirements.in

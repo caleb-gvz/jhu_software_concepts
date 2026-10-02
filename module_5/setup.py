@@ -39,6 +39,7 @@ setup(
         "beautifulsoup4>=4.12",
         "Flask>=3.0",
         "psycopg[binary]>=3.2",
+        "reportlab>=4.0",
         "SQLAlchemy>=2.0",
     ],
     extras_require={

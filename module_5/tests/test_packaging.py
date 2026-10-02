@@ -26,6 +26,7 @@ RUNTIME_IMPORTS = {
     "bs4": "beautifulsoup4",
     "flask": "flask",
     "psycopg": "psycopg",
+    "reportlab": "reportlab",
     "sqlalchemy": "sqlalchemy",
 }
 OPTIONAL_IMPORTS = {"huggingface_hub", "llama_cpp"}
