@@ -15,13 +15,13 @@ src\models.py                       37      0   100%
 src\orm_queries.py                  79      0   100%
 src\pull_data.py                    75      0   100%
 src\pull_manager.py                 65      0   100%
-src\query_data.py                  109      0   100%
+src\query_data.py                  121      0   100%
 src\questions.py                    57      0   100%
 src\run_llm_standardization.py      83      0   100%
 src\scrape.py                      212      0   100%
 src\sql_safety.py                   25      0   100%
 src\web_assets\__init__.py           0      0   100%
 --------------------------------------------------------------
-TOTAL                             1576      0   100%
+TOTAL                             1588      0   100%
 Required test coverage of 100% reached. Total coverage: 100.00%
-408 passed in 26.30s
+417 passed in 27.61s

@@ -1,5 +1,5 @@
 Least-privilege evidence for Module 5
-Captured: 2026-10-01 23:00:49 EDT
+Captured: 2026-10-01 23:25:42 EDT
 Server:   PostgreSQL 18.6 on x86_64-windows
 
 ### 1. psql -U gradcafe_m5_owner -d gradcafe_m5 -f db_verify_privileges.sql

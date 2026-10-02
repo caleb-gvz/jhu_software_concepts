@@ -148,9 +148,12 @@ def build_styles() -> Dict[str, ParagraphStyle]:
     body = ParagraphStyle("Body", parent=base["BodyText"], fontSize=9.5, leading=13, spaceAfter=5)
     return {
         "title": ParagraphStyle("T", parent=base["Title"], fontSize=22, leading=27),
-        "h1": ParagraphStyle("H1", parent=base["Heading1"], fontSize=15, spaceBefore=6),
-        "h2": ParagraphStyle("H2", parent=base["Heading2"], fontSize=12, spaceBefore=8),
-        "h3": ParagraphStyle("H3", parent=base["Heading3"], fontSize=10.5, spaceBefore=6),
+        "h1": ParagraphStyle("H1", parent=base["Heading1"], fontSize=15, spaceBefore=6,
+                             keepWithNext=1),
+        "h2": ParagraphStyle("H2", parent=base["Heading2"], fontSize=12, spaceBefore=8,
+                             keepWithNext=1),
+        "h3": ParagraphStyle("H3", parent=base["Heading3"], fontSize=10.5, spaceBefore=6,
+                             keepWithNext=1),
         "body": body,
         "bullet": ParagraphStyle("Bullet", parent=body, leftIndent=16, bulletIndent=4),
         "cell": ParagraphStyle("Cell", parent=body, fontSize=8.5, leading=11, spaceAfter=0),

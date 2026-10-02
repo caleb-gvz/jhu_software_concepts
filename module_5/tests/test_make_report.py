@@ -108,6 +108,14 @@ def test_bold_text_may_contain_inline_code():
     assert "gradcafe_m5_app</font>" in out
 
 
+def test_every_heading_style_keeps_with_the_content_that_follows_it():
+    # Otherwise an "Evidence: ..." heading can be stranded at the foot of a page while its
+    # screenshot starts on the next one.
+    styles = make_report.build_styles()
+
+    assert all(styles[name].keepWithNext for name in ("h1", "h2", "h3"))
+
+
 def test_inline_markup_leaves_stars_inside_code_alone():
     assert "*args" in inline_markup("call `f(*args)` now")
 
