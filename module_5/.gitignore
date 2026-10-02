@@ -1,0 +1,23 @@
+# Module-specific ignores (repo-wide ignores live in the root .gitignore)
+
+# Assignment instructions from Canvas -- never pushed to GitHub
+module_5_instructions.pdf
+module 5 instructions.pdf
+
+# Scraper / LLM working files
+scrape_checkpoint.json
+src/llm_hosting/models/
+llm_subsample.json
+llm_shard_*.json
+*.jsonl
+
+# Packaged submissions
+module_3.zip
+module_4.zip
+module_5.zip
+
+# Packaging / tooling build output
+*.egg-info/
+build/
+dist/
+.pydeps-cache/

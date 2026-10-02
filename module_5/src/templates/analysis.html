@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grad Café Analysis</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div>
+        <h1 data-testid="page-title">Grad Café Data Analysis</h1>
+        <p class="subtitle">
+          Graduate-school application results, analysed from PostgreSQL.
+          {% if analysis %}Currently <strong data-testid="total-entries">{{ "{:,}".format(analysis.total_entries) }}</strong> entries.{% endif %}
+        </p>
+      </div>
+      <form method="post" action="{{ url_for('update_analysis') }}" class="header-actions" id="update-form">
+        <button type="submit" class="button button-primary" id="update-button"
+                data-testid="update-analysis-btn">Update Analysis</button>
+      </form>
+    </div>
+  </header>
+
+  <main>
+    <div id="action-message" class="notice" role="status" data-testid="action-message" hidden></div>
+
+    <div id="pull-banner" class="notice notice-warning" role="status" data-testid="pull-banner" {% if not pulling %}hidden{% endif %}>
+      New data is currently being retrieved from Grad Café&hellip;
+      <span id="pull-progress">{{ last_pull_message if pulling else "" }}</span>
+    </div>
+
+    {% if not pulling and last_pull_message and last_pull_succeeded is not none %}
+      <div class="notice {{ 'notice-success' if last_pull_succeeded else 'notice-error' }}" data-testid="last-pull">
+        Last data pull: {{ last_pull_message }}
+      </div>
+    {% endif %}
+
+    <section class="card pull-card">
+      <div>
+        <h2>Pull Data</h2>
+        <p>
+          Pull Data checks Grad Café for newly submitted application results and adds new
+          records to the database. Depending on the amount of new data available, this may
+          take some time. Only one pull can run at a time. When it finishes, click Update
+          Analysis to include the new records in the results below.
+        </p>
+      </div>
+      <form method="post" action="{{ url_for('pull_data') }}" id="pull-form">
+        <button type="submit" class="button" id="pull-button" data-testid="pull-data-btn"
+                {% if pulling %}disabled{% endif %}>Pull Data</button>
+      </form>
+    </section>
+
+    {% if db_error %}
+      <div class="notice notice-error" data-testid="db-error">
+        The page could not connect to the database, so no analysis can be shown. Check that
+        PostgreSQL is running and that DATABASE_URL (or the PG* variables) is set, then click
+        Update Analysis.
+      </div>
+    {% else %}
+      {% if updated_at %}
+        <p class="updated-at" data-testid="updated-at">Analysis as of {{ updated_at.strftime("%Y-%m-%d %H:%M:%S") }}.</p>
+      {% endif %}
+      {% for section_title, cards in [("Assigned questions", analysis.assigned), ("My own questions", analysis.original)] %}
+        <h2 class="section-title">{{ section_title }}</h2>
+        <div class="grid">
+          {% for card in cards %}
+            <article class="card" data-testid="analysis-card" data-question="{{ card.number }}">
+              <p class="label">{{ card.label }} &middot; {{ card.title }}</p>
+              <p class="question">{{ card.question }}</p>
+              <div class="results">
+                {% for line in card.answers %}
+                  <p class="result" data-testid="answer"><span class="answer-label">Answer:</span> {{ line }}</p>
+                {% endfor %}
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    {% endif %}
+  </main>
+
+  <footer class="site-footer">
+    Caleb Gevertz &middot; JHED cgevert1 &middot; Modern Software Concepts in Python, Module 5
+  </footer>
+
+  <script>
+    // Both buttons post with fetch() and read the JSON reply, so the page can explain
+    // what happened (started, busy, failed) without leaving the page.
+    (function () {
+      var banner = document.getElementById("pull-banner");
+      var progress = document.getElementById("pull-progress");
+      var pullButton = document.getElementById("pull-button");
+      var messageBox = document.getElementById("action-message");
+      var wasRunning = {{ 'true' if pulling else 'false' }};
+
+      function showMessage(text, kind) {
+        messageBox.textContent = text;
+        messageBox.className = "notice notice-" + kind;
+        messageBox.hidden = false;
+      }
+
+      function post(form) {
+        return fetch(form.action, { method: "POST", headers: { "Accept": "application/json" } })
+          .then(function (response) {
+            return response.json().then(function (body) { return { status: response.status, body: body }; });
+          });
+      }
+
+      document.getElementById("pull-form").addEventListener("submit", function (event) {
+        event.preventDefault();
+        post(event.target).then(function (reply) {
+          if (reply.status === 409) {
+            showMessage(reply.body.message, "warning");
+          } else if (reply.body.ok) {
+            showMessage(reply.body.message, "info");
+            wasRunning = true;
+            banner.hidden = false;
+            pullButton.disabled = true;
+          } else {
+            showMessage(reply.body.error || "The pull could not be started.", "error");
+          }
+        }).catch(function () { showMessage("The server could not be reached.", "error"); });
+      });
+
+      document.getElementById("update-form").addEventListener("submit", function (event) {
+        event.preventDefault();
+        post(event.target).then(function (reply) {
+          if (reply.status === 200) {
+            window.location.reload();   // show the refreshed analysis
+          } else if (reply.status === 409) {
+            showMessage(reply.body.message, "warning");
+          } else {
+            showMessage(reply.body.error || "The analysis could not be updated.", "error");
+          }
+        }).catch(function () { showMessage("The server could not be reached.", "error"); });
+      });
+
+      // Poll /status so the page notices when a pull starts or finishes.
+      function check() {
+        fetch("{{ url_for('status') }}", { cache: "no-store" })
+          .then(function (response) { return response.json(); })
+          .then(function (state) {
+            if (state.running) {
+              wasRunning = true;
+              banner.hidden = false;
+              progress.textContent = state.message || "";
+              pullButton.disabled = true;
+            } else if (wasRunning) {
+              wasRunning = false;
+              banner.hidden = true;
+              pullButton.disabled = false;
+              showMessage("Pull finished: " + state.message + " Click Update Analysis to refresh the results.",
+                          state.succeeded ? "success" : "error");
+            }
+          })
+          .catch(function () { /* server busy or restarting; try again next tick */ });
+      }
+      setInterval(check, 3000);
+    })();
+  </script>
+</body>
+</html>
