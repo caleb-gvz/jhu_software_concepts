@@ -12,6 +12,7 @@ from psycopg import sql
 from load_data import COLUMNS, load_records
 from query_data import (
     QUERIES,
+    SORT_IDENTIFIERS,
     SORTABLE_COLUMNS,
     fetch_applicants,
     get_query,
@@ -277,3 +278,17 @@ def test_search_caps_the_number_of_rows_returned(test_conn):
     assert len(search_applicants(test_conn, limit="2")) == 2
     with pytest.raises(ValueError, match="limit"):
         search_applicants(test_conn, limit="all")
+
+
+def test_sort_identifiers_are_prebuilt_from_the_trusted_column_list_only():
+    # The request's sort text is only ever a dictionary key; the identifier placed in the
+    # SQL is one of these constants, so caller text never becomes part of the statement.
+    assert set(SORT_IDENTIFIERS) == set(COLUMNS)
+    assert all(isinstance(value, sql.Identifier) for value in SORT_IDENTIFIERS.values())
+    assert SORT_IDENTIFIERS["gpa"].as_string() == '"gpa"'
+
+
+@pytest.mark.parametrize("unhashable_or_odd", [["p_id"], {"p_id": 1}, None, 5, b"p_id"])
+def test_search_rejects_a_sort_that_is_not_even_a_string(seeded_conn, unhashable_or_odd):
+    with pytest.raises(ValueError, match="sort"):
+        search_applicants(seeded_conn, sort=unhashable_or_odd)

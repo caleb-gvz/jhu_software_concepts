@@ -311,6 +311,13 @@ def run_all(conn: psycopg.Connection, limit: Any = None) -> List[Tuple[Query, Li
 SORTABLE_COLUMNS: Tuple[str, ...] = COLUMNS
 _KEY_COLUMN = "p_id"
 
+# One pre-built, quoted identifier per allowed column. A caller's ``sort`` text is only ever
+# used as a dictionary key here: what goes into the SQL is one of these constants, so the
+# request text itself never becomes part of the statement.
+SORT_IDENTIFIERS: Dict[str, sql.Identifier] = {
+    name: sql.Identifier(name) for name in SORTABLE_COLUMNS
+}
+
 SELECT_APPLICANTS = sql.SQL("SELECT {columns} FROM {table}").format(
     columns=sql.SQL(", ").join(sql.Identifier(column) for column in COLUMNS),
     table=APPLICANTS_TABLE,
@@ -342,6 +349,47 @@ def _equals_ignoring_case(column: str) -> sql.Composed:
     )
 
 
+# ASC / DESC as constants chosen by a boolean, never assembled from caller text.
+SORT_DIRECTIONS: Dict[bool, sql.SQL] = {False: sql.SQL("ASC"), True: sql.SQL("DESC")}
+
+# The only filters the search accepts, built once from constants: a caller's value can
+# select a condition and fill its bound parameter, but never alters the SQL text.
+FILTER_CONDITIONS: Dict[str, sql.Composed] = {
+    column: _equals_ignoring_case(column) for column in ("term", "status")
+}
+
+
+def _trusted_sort_identifier(sort: Any) -> sql.Identifier:
+    """The pre-built identifier whose column name equals ``sort``; ``ValueError`` if none.
+
+    The match is found by *comparing* ``sort`` with each allowed name and returning the
+    trusted constant, so the caller's text is never copied into the result (a plain
+    ``SORT_IDENTIFIERS[sort]`` lookup would also be safe, but static analyzers treat a
+    lookup by tainted key as tainted). Anything that is not exactly an allowed name --
+    including non-strings -- is rejected.
+    """
+    for name, identifier in SORT_IDENTIFIERS.items():
+        if name == sort:
+            return identifier
+    raise ValueError(f"sort must be one of: {', '.join(SORTABLE_COLUMNS)}")
+
+
+def _where_clause(
+    term: Optional[str], status: Optional[str]
+) -> Tuple[sql.Composable, Dict[str, Any]]:
+    """``WHERE`` for the given filters plus their bound values; blank or ``None`` is skipped."""
+    requested = {"term": term, "status": status}
+    conditions: List[sql.Composable] = []
+    params: Dict[str, Any] = {}
+    for column, condition in FILTER_CONDITIONS.items():   # column names are constants
+        if requested[column]:
+            conditions.append(condition)
+            params[column] = str(requested[column])          # request text only ever binds
+    if not conditions:
+        return sql.SQL(""), params
+    return sql.SQL(" WHERE {}").format(sql.SQL(" AND ").join(conditions)), params
+
+
 def search_applicants(  # pylint: disable=too-many-arguments
     conn: psycopg.Connection,
     *,
@@ -356,32 +404,21 @@ def search_applicants(  # pylint: disable=too-many-arguments
     * ``term`` / ``status`` are bound parameters; blank or ``None`` means no filter. They
       are compared with ``=`` rather than ``LIKE``, so ``%`` and ``_`` are ordinary
       characters and a value can never widen the match.
-    * ``sort`` must be one of ``SORTABLE_COLUMNS``; it is then quoted with
-      ``sql.Identifier``. Anything else raises ``ValueError``.
+    * ``sort`` must be one of ``SORTABLE_COLUMNS``; it selects a pre-built
+      ``sql.Identifier`` from ``SORT_IDENTIFIERS`` (its text is never placed in the SQL).
+      Anything else raises ``ValueError``.
     * Direction comes from the ``descending`` flag, never from caller text. NULLs sort last.
     * At most ``limit`` rows come back, clamped to 1..100 (``ValueError`` if not a number).
     """
-    if sort not in SORTABLE_COLUMNS:
-        raise ValueError(f"sort must be one of: {', '.join(SORTABLE_COLUMNS)}")
+    sort_identifier = _trusted_sort_identifier(sort)
 
-    conditions: List[sql.Composable] = []
-    params: Dict[str, Any] = {}
-    for column, value in (("term", term), ("status", status)):
-        if value:
-            conditions.append(_equals_ignoring_case(column))
-            params[column] = str(value)
-    where = (
-        sql.SQL(" WHERE {}").format(sql.SQL(" AND ").join(conditions))
-        if conditions
-        else sql.SQL("")
-    )
-
+    where, params = _where_clause(term, status)
     statement = limited(
         sql.SQL("{select}{where} ORDER BY {sort} {direction} NULLS LAST, {key}").format(
             select=SELECT_APPLICANTS,
             where=where,
-            sort=sql.Identifier(sort),
-            direction=sql.SQL("DESC" if descending else "ASC"),
+            sort=sort_identifier,
+            direction=SORT_DIRECTIONS[bool(descending)],
             key=sql.Identifier(_KEY_COLUMN),
         )
     )
