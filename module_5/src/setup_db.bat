@@ -6,10 +6,27 @@ rem least-privilege grants by running db_setup.sql.
 rem You will be asked for the password of the PostgreSQL "postgres" superuser.
 rem The two role passwords are read from DB_PASSWORD (app role) and DB_OWNER_PASSWORD
 rem (owner role) in your environment, or from the git-ignored module_5\.env file.
-rem psql is taken from PATH unless PSQL is set.
+rem psql is taken from PATH, else from the PostgreSQL installer's default folder
+rem (%ProgramFiles%\PostgreSQL\<version>\bin), unless PSQL is already set.
 cd /d "%~dp0"
 
-if not defined PSQL set PSQL=psql
+if not defined PSQL (
+    where psql >nul 2>nul && set PSQL=psql
+)
+if not defined PSQL (
+    for /d %%d in ("%ProgramFiles%\PostgreSQL\*") do (
+        if exist "%%d\bin\psql.exe" set "PSQL=%%d\bin\psql.exe"
+    )
+)
+if not defined PSQL (
+    echo.
+    echo psql.exe was not found on PATH or under %ProgramFiles%\PostgreSQL.
+    echo Set PSQL to the full path of psql.exe and run this file again.
+    pause
+    exit /b 1
+)
+echo Using %PSQL%
+
 if not defined DB_PASSWORD (
     for /f "tokens=1,* delims==" %%a in ('findstr /b "DB_PASSWORD=" ..\.env') do set DB_PASSWORD=%%b
 )

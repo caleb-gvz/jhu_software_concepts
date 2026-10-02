@@ -16,6 +16,12 @@ ENV_FILE="../.env"
 
 PSQL="${PSQL:-$(command -v psql || true)}"
 if [ -z "$PSQL" ]; then
+    # Git Bash on Windows: the PostgreSQL installer's default folder (newest version last).
+    for candidate in "/c/Program Files/PostgreSQL/"*/bin/psql.exe; do
+        [ -f "$candidate" ] && PSQL="$candidate"
+    done
+fi
+if [ -z "$PSQL" ]; then
     echo "psql was not found. Add PostgreSQL's bin folder to PATH or set PSQL=/path/to/psql." >&2
     exit 1
 fi

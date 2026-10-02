@@ -98,3 +98,21 @@ def test_public_access_to_the_databases_table_and_schema_is_revoked():
     for target in ("DATABASE gradcafe_m5", "DATABASE gradcafe_m5_test", "TABLE applicants",
                    "SCHEMA public"):
         assert f"REVOKE ALL ON {target} FROM PUBLIC" in code, target
+
+
+# ---- the wrapper scripts -------------------------------------------------------------------
+
+def test_the_windows_script_finds_psql_in_the_default_install_folder_when_it_is_not_on_path():
+    script = (SRC / "setup_db.bat").read_text(encoding="utf-8")
+
+    assert "where psql" in script                         # use PATH first
+    assert r"%ProgramFiles%\PostgreSQL" in script        # then the installer's default folder
+    assert "psql.exe" in script
+    assert "was not found" in script                      # and a clear message if neither works
+
+
+def test_the_bash_script_also_falls_back_to_the_default_windows_install_folder():
+    script = (SRC / "setup_db.sh").read_text(encoding="utf-8")
+
+    assert "command -v psql" in script
+    assert "Program Files/PostgreSQL" in script
