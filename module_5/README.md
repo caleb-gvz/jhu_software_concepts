@@ -10,7 +10,94 @@ enforced `LIMIT` on every query), environment-based credentials with a least-pri
 database user, a dependency graph, a reproducible pip/uv install, Snyk scans and a
 GitHub Actions pipeline that enforces all of it.
 
-> Work in progress: this README is extended step by step as each requirement lands.
+## Fresh Install
+
+Requirements: Python 3.10+ (3.12 is what CI uses), PostgreSQL 14+, and — only to regenerate the
+dependency graph — [Graphviz](https://graphviz.org/download/) so that the `dot` command is on your PATH.
+Run everything below from the `module_5/` folder. `requirements.txt` pins **every** package (runtime,
+tooling and their transitive dependencies), so either method rebuilds the identical environment.
+
+### Option 1 — pip + venv
+
+```bash
+python -m venv .venv
+source .venv/bin/activate            # Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m pip install -e .           # puts src/ on the import path (see setup.py)
+```
+
+### Option 2 — uv
+
+```bash
+uv venv                              # creates .venv
+source .venv/bin/activate            # Windows PowerShell: .venv\Scripts\Activate.ps1
+uv pip sync requirements.txt         # installs exactly what is listed -- nothing more, nothing less
+uv pip install -e .
+```
+
+`uv pip sync` makes the environment match `requirements.txt` exactly (it also removes anything extra),
+which is why the file is fully pinned. The short list of direct dependencies lives in
+`requirements.in`; regenerate the pinned file after editing it with:
+
+```bash
+uv pip compile requirements.in --universal --python-version 3.12 -o requirements.txt
+```
+
+Both methods were verified in brand-new environments: the app imports and serves its page from a
+different working directory, `pip check` reports no broken requirements, and a non-editable wheel
+(`pip wheel . --no-deps`) also carries the templates and CSS.
+
+### Configure the database connection
+
+Credentials are never in the code. Copy the template and fill in real values (`.env` is git-ignored):
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Used by | Meaning |
+|---|---|---|
+| `DB_HOST`, `DB_PORT`, `DB_NAME` | app, CLI tools | Server location and database (defaults `localhost`, `5432`, `gradcafe`; this module uses `gradcafe_m5`) |
+| `DB_USER`, `DB_PASSWORD` | app, CLI tools | The **least-privilege** role `gradcafe_m5_app` |
+| `DB_OWNER_USER`, `DB_OWNER_PASSWORD` | `setup_db.*` only | The owner role that creates the schema |
+| `TEST_DATABASE_URL` | tests | Owner-level URL of the scratch database `gradcafe_m5_test` |
+| `TEST_APP_DATABASE_URL` | privilege tests | The app role's URL for the same scratch database |
+| `DATABASE_URL` | optional | A full URL that replaces the five `DB_*` values (CI uses it) |
+
+Real environment variables always override `.env`. The old `PG*` variables are intentionally ignored.
+
+### Create the database roles (one time)
+
+`src/setup_db.sh` (or double-click `src/setup_db.bat` on Windows) runs `src/db_setup.sql` as the
+PostgreSQL superuser and prompts for that password (it is never stored). It reads the two role
+passwords from `.env`. See *Least-privilege database* below for exactly what it creates.
+
+## Running
+
+```bash
+# load the scraped data (schema must exist: see "Create the database roles")
+python src/load_data.py                  # add --reset to empty the table first (needs the owner role)
+python src/query_data.py                 # print the analysis answers using the composed-SQL layer
+python src/orm_queries.py                # the same answers through SQLAlchemy
+
+# the Flask app
+cd src && flask --app flask_app run      # http://127.0.0.1:5000/analysis
+```
+
+Routes: `GET /analysis`, `POST /pull-data`, `POST /update-analysis`, `GET /status`, and the new read-only
+`GET /applicants?term=&status=&sort=&direction=&limit=` (see *SQL injection defenses*).
+Example: `curl "http://127.0.0.1:5000/applicants?term=fall%202026&status=accepted&sort=gpa&direction=desc&limit=5"`.
+
+## Tests
+
+```bash
+pytest -m "web or buttons or analysis or db or integration"
+```
+
+`pytest.ini` enforces 100% coverage of `src/` (`--cov-fail-under=100`); the same command works from the
+repository root as `pytest module_5 -m "..."`. The final summary is saved in `coverage_summary.txt`.
+Tests that need the least-privilege role are skipped, with a stated reason, unless
+`TEST_APP_DATABASE_URL` is set.
 
 ## SQL injection defenses
 
@@ -59,6 +146,33 @@ values, sort columns, directions and limits, and check there is no crash, no ext
 and that the table is still intact. `tests/test_sql_composition_guard.py` parses every file in `src/`
 and fails if any `execute()` / `executemany()` is ever given an f-string, `+`/`%` concatenation,
 `.format()` or string literal.
+
+## Dependency graph
+
+`dependency.svg` is generated with pydeps and Graphviz. From `module_5/`, with `dot` on your PATH:
+
+```bash
+pydeps src/flask_app.py --noshow -T svg -o dependency.svg --max-module-depth=1
+```
+
+`--max-module-depth=1` collapses each third-party package (Flask, psycopg, SQLAlchemy) into a single node
+so the picture shows how *this project's* modules relate instead of hundreds of Flask internals. pydeps
+draws each arrow from a dependency to the module that imports it. CI regenerates the file on every push
+and fails if it is missing or empty.
+
+**Key dependencies, in 7 sentences.** `flask_app.py` is the entry point and sits at the bottom of the graph
+because nearly everything flows into it. Flask and its helpers (Werkzeug for requests and routing, Jinja2
+for the page template, plus click, itsdangerous, markupsafe and blinker) form the web layer. Data access has
+two parallel paths: psycopg (with its compiled `psycopg_binary` driver) serves the raw-SQL modules
+`query_data`, `load_data` and `pull_data`, while SQLAlchemy serves `models` and `orm_queries`, which feed the
+analysis page. `db_config` is the single place both paths read the `DB_*` connection settings from the
+environment, so five modules import it and no credentials appear anywhere else. The new `sql_safety` module
+(built on `psycopg.sql`) is imported by `query_data`, `load_data`, `pull_data` and `orm_queries`, which is
+how one clamp-and-bind `LIMIT` rule covers every query. `questions` holds the shared wording and formatting
+so the SQL and ORM versions give identical answers, while `clean` and `scrape` feed `pull_data` (the Pull
+Data button) under the supervision of `pull_manager`. Underneath it all, `typing_extensions` is a shared
+low-level dependency of SQLAlchemy, psycopg and Flask's helpers, and there are no cycles: dependencies flow
+in one direction toward the app.
 
 ## Static analysis: Pylint (10/10)
 
