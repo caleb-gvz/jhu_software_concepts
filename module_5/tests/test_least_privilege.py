@@ -93,7 +93,6 @@ def test_the_application_code_works_with_only_the_granted_privileges(app_conn):
         "CREATE TABLE evil (id INT)",
         "CREATE INDEX evil_index ON applicants (status)",
         "CREATE ROLE evil LOGIN",
-        "GRANT ALL ON applicants TO PUBLIC",
         "COMMENT ON TABLE applicants IS 'changed'",
     ],
 )
@@ -107,6 +106,23 @@ def test_destructive_and_owner_only_statements_are_refused_and_the_data_survives
     app_conn.rollback()
 
     assert [row["p_id"] for row in fetch_applicants(app_conn)] == [1, 2]
+
+
+def test_the_application_role_cannot_hand_out_privileges(app_conn, test_conn):
+    # PostgreSQL does not raise for a non-owner's GRANT; it warns and grants nothing.
+    app_conn.execute("GRANT ALL ON applicants TO PUBLIC")
+    app_conn.commit()
+
+    public_grants = _one(
+        test_conn,
+        "SELECT count(*) FROM information_schema.role_table_grants "
+        "WHERE table_name = 'applicants' AND grantee = 'PUBLIC'",
+    )[0]
+    app_can_delete = _one(
+        test_conn, "SELECT has_table_privilege('gradcafe_m5_app', 'applicants', 'DELETE')"
+    )[0]
+    assert public_grants == 0
+    assert app_can_delete is False
 
 
 @pytest.mark.parametrize("column", [c for c in COLUMNS if c not in LLM_COLUMNS])
