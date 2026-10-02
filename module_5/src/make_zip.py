@@ -3,12 +3,12 @@
     python src/make_zip.py
 
 The archive holds the whole ``module_5`` folder under a top-level ``module_5/``
-directory, plus the repository's CI workflow at ``.github/workflows/tests.yml`` (it lives
+directory, plus the repository's CI workflow at ``.github/workflows/ci.yml`` (it lives
 one level above ``module_5`` in the repo). Everything the assignment says not to submit
 is left out: virtual environments, caches (``__pycache__``, ``.pytest_cache``,
-``.coverage``, ``htmlcov``), credentials (``.env``), the instructions PDF, the
-multi-hundred-MB LLM model, intermediate LLM work files, Sphinx's doctree cache, and
-Claude Code files.
+``.coverage``, ``htmlcov``), packaging build output (``*.egg-info``, ``build``, ``dist``),
+credentials (``.env``), the instructions PDF, the multi-hundred-MB LLM model,
+intermediate LLM work files, and Claude Code files.
 """
 
 from __future__ import annotations
@@ -22,20 +22,21 @@ from typing import List, Tuple
 
 ARCHIVE_ROOT = "module_5"
 ZIP_NAME = "module_5.zip"
-WORKFLOW_RELATIVE_PATH = ".github/workflows/tests.yml"
+WORKFLOW_RELATIVE_PATH = ".github/workflows/ci.yml"
 
 EXCLUDED_DIRECTORIES = {
     ".venv", "venv", "env", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
-    ".playwright-mcp", ".claude", ".idea", ".vscode", ".git", "htmlcov",
+    ".playwright-mcp", ".claude", ".idea", ".vscode", ".git", "htmlcov", "build", "dist",
 }
+EXCLUDED_DIRECTORY_SUFFIXES = (".egg-info",)
 # Relative POSIX paths of directories to skip (LLM weights, Sphinx's pickled doctrees).
 EXCLUDED_RELATIVE_DIRECTORIES = {
     "src/llm_hosting/models", "docs/_build/doctrees", "docs/_build/html/.doctrees",
 }
 EXCLUDED_FILE_NAMES = {
-    ".env", ".coverage", "CLAUDE.md", "CLAUDE.local.md", "module 5 instructions.pdf",
-    "module_3.zip", ZIP_NAME, "scrape_checkpoint.json", ".DS_Store", "Thumbs.db",
-    ".buildinfo",
+    ".env", ".coverage", "CLAUDE.md", "CLAUDE.local.md", "module_5_instructions.pdf",
+    "module 5 instructions.pdf", "module_3.zip", "module_4.zip", ZIP_NAME,
+    "scrape_checkpoint.json", ".DS_Store", "Thumbs.db", ".buildinfo",
 }
 EXCLUDED_FILE_PATTERNS = (
     "*.pyc", "*.pyo", "*.jsonl", "*.gguf", "*.dump", "*.backup", "llm_shard_*.json",
@@ -63,6 +64,7 @@ def collect_files(module_dir: Path) -> List[Path]:
         subdirectories[:] = [
             name for name in subdirectories
             if name not in EXCLUDED_DIRECTORIES
+            and not name.endswith(EXCLUDED_DIRECTORY_SUFFIXES)
             and f"{prefix}{name}" not in EXCLUDED_RELATIVE_DIRECTORIES
         ]
         for file_name in file_names:
