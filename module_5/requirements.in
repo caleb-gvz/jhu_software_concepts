@@ -1,0 +1,21 @@
+# Direct dependencies of module_5. requirements.txt is generated from this file:
+#
+#   uv pip compile requirements.in --universal --python-version 3.12 -o requirements.txt
+#
+# Edit THIS file, regenerate, and commit both. Do not edit requirements.txt by hand.
+
+# --- Runtime: the Flask app, the PostgreSQL loader and the scraper --------------------
+beautifulsoup4>=4.12
+Flask>=3.0
+psycopg[binary]>=3.2
+SQLAlchemy>=2.0
+
+# --- Tooling required by Module 5 -----------------------------------------------------
+pylint>=4.0          # static analysis, must score 10.00/10
+pydeps>=3.0          # dependency graph (needs the Graphviz `dot` command installed)
+
+# --- Tests and packaging --------------------------------------------------------------
+pytest>=8.0
+pytest-cov>=5.0
+pypdf>=4.0           # reads the generated report PDF back in the tests
+setuptools>=70       # runs setup.py (no longer bundled with Python 3.12+ venvs)

@@ -162,7 +162,12 @@ def create_app(  # pylint: disable=too-many-arguments,too-many-locals
     pull_manager: Optional[PullManager] = None,
 ) -> Flask:
     """Build the Flask app; every collaborator can be replaced (see the module docstring)."""
-    app = Flask(__name__)
+    # The assets live in the ``web_assets`` package so they ship inside a built wheel.
+    app = Flask(
+        __name__,
+        template_folder="web_assets/templates",
+        static_folder="web_assets/static",
+    )
     app.config.update(
         # Only signs the session cookie; a fresh random key per process is fine.
         SECRET_KEY=os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(16),
