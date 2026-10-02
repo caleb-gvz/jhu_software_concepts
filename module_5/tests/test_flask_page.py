@@ -249,15 +249,28 @@ def test_page_shows_every_question_with_results_from_the_database(make_app, test
     assert "Answer: American: 50.00% accepted (n = 2)" in answers  # original question 1
 
 
-def test_app_reads_the_database_only_through_the_orm():
+def test_the_page_reads_through_the_orm_and_the_app_runs_no_sql_itself():
     tree = ast.parse(Path(app_module.__file__).read_text(encoding="utf-8"))
     imported = set()
+    names_from_query_data = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             imported.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             imported.add((node.module or "").split(".")[0])
+            if node.module == "query_data":
+                names_from_query_data.update(alias.name for alias in node.names)
 
-    assert "psycopg" not in imported
-    assert "query_data" not in imported
+    # The analysis page's data still comes from the ORM ...
     assert "orm_queries" in imported
+    # ... the only raw-SQL function the app uses is the vetted GET /applicants search ...
+    assert names_from_query_data == {"search_applicants"}
+    # ... and this module never builds or runs a statement itself.
+    executed = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"execute", "executemany"}
+    ]
+    assert executed == []

@@ -12,6 +12,12 @@ Routes
 ``POST /update-analysis``
     Re-run the analysis queries: ``200 {"ok": true}``, or ``409 {"busy": true}`` (and no
     update) while a pull is running. Never scrapes.
+``GET /applicants``
+    JSON list of stored applicants. Query string: ``term`` and ``status`` (exact,
+    case-insensitive filters), ``sort`` (a stored column name, default ``p_id``),
+    ``direction`` (``asc``/``desc``) and ``limit`` (clamped to 1..100, default 100). Every
+    value is validated or bound as a parameter; bad input gives ``400``, an unreachable
+    database ``503``. Read-only.
 ``GET /status``
     JSON the page polls to show pull progress.
 
@@ -42,16 +48,19 @@ import secrets
 import threading
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
-from flask import Flask, jsonify, render_template
+import psycopg
+from flask import Flask, jsonify, render_template, request
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 import orm_queries
 import pull_data
-from db_config import database_url
+from db_config import connect, database_url
 from load_data import load_records
 from models import make_session_factory
 from pull_manager import PullManager
+from query_data import search_applicants
+from sql_safety import clamp_limit
 
 BUSY_MESSAGE = (
     "New data is currently being retrieved from Grad Café. Please wait for the pull to "
@@ -100,6 +109,43 @@ class AnalysisCache:
 def _busy_response() -> Tuple[Any, int]:
     """The JSON body and status used whenever a pull is already in progress."""
     return jsonify(ok=False, busy=True, message=BUSY_MESSAGE), 409
+
+
+def _json_row(row: Mapping[str, Any]) -> Dict[str, Any]:
+    """One applicant row made JSON-friendly (dates become ISO ``YYYY-MM-DD`` strings)."""
+    return {
+        column: value.isoformat() if isinstance(value, datetime.date) else value
+        for column, value in row.items()
+    }
+
+
+def _applicants_response(db_url: str, args: Mapping[str, str]) -> Tuple[Any, int]:
+    """Answer ``GET /applicants`` from the query-string ``args``.
+
+    Every value is validated before it can reach SQL: ``limit`` must be a whole number
+    (then it is clamped to 1..100), ``sort`` must name a stored column, ``direction`` must
+    be ``asc`` or ``desc``, and ``term`` / ``status`` are bound parameters. A rejected value
+    gives ``400`` with a fixed message that never repeats the input.
+    """
+    direction = args.get("direction", "asc").strip().lower()
+    if direction not in ("asc", "desc"):
+        return jsonify(ok=False, error="direction must be 'asc' or 'desc'"), 400
+    try:
+        limit = clamp_limit(args.get("limit"))
+        with connect(db_url) as conn:
+            rows = search_applicants(
+                conn,
+                term=args.get("term"),
+                status=args.get("status"),
+                sort=args.get("sort", "p_id"),
+                descending=direction == "desc",
+                limit=limit,
+            )
+    except ValueError as exc:          # bad limit or sort: the message is fixed text
+        return jsonify(ok=False, error=str(exc)), 400
+    except psycopg.OperationalError:
+        return jsonify(ok=False, error=DB_ERROR_MESSAGE), 503
+    return jsonify(count=len(rows), limit=limit, applicants=[_json_row(r) for r in rows]), 200
 
 
 # The factory takes one injectable collaborator per seam (scraper, loader, query function,
@@ -206,6 +252,11 @@ def create_app(  # pylint: disable=too-many-arguments,too-many-locals
             total_entries=data["total_entries"],
             message="Analysis updated using the latest data in the database.",
         ), 200
+
+    @app.get("/applicants")
+    def applicants():
+        """JSON list of applicants, filtered and sorted by validated query-string values."""
+        return _applicants_response(app.config["DATABASE_URL"], request.args)
 
     @app.get("/status")
     def status():
