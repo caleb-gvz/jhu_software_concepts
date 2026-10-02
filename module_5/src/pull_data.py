@@ -26,11 +26,22 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
 import psycopg
+from psycopg import sql
 
 from clean import clean_data
 from db_config import connect
-from load_data import LoadResult, create_table, load_records
+from load_data import APPLICANTS_TABLE, LoadResult, create_table, load_records
 from scrape import ScrapeError, scrape_new_records
+from sql_safety import MAX_LIMIT, limit_params, limited
+
+# One page of already-stored ids: keyset pagination ("the next ids after the last one I
+# saw"), so no single query ever asks for more than MAX_LIMIT rows.
+KNOWN_ID_PAGE_STATEMENT = sql.SQL(
+    "SELECT {key} FROM {table} WHERE {key} > %(after)s ORDER BY {key}"
+).format(key=sql.Identifier("p_id"), table=APPLICANTS_TABLE)
+
+# Smaller than any possible INTEGER p_id, so the first page starts at the very beginning.
+BEFORE_EVERY_ID = -(2**31)
 
 # How many of the newest survey pages (~20 entries each) one pull may read.
 DEFAULT_MAX_PAGES = 20
@@ -77,10 +88,22 @@ def default_scraper(known_ids: Set[int], max_pages: int) -> List[Dict[str, Any]]
 
 
 def _known_ids(conn: psycopg.Connection) -> Set[int]:
-    """Every p_id already stored in ``applicants``."""
-    with conn.cursor() as cur:
-        cur.execute("SELECT p_id FROM applicants")
-        return {row[0] for row in cur.fetchall()}
+    """Every p_id already stored in ``applicants``, read one capped page at a time.
+
+    Each query is ``LIMIT``-ed to ``MAX_LIMIT`` ids; a full page means there may be more,
+    so the next query resumes after the last id seen. The loop ends on a short page.
+    """
+    statement = limited(KNOWN_ID_PAGE_STATEMENT)
+    known: Set[int] = set()
+    after = BEFORE_EVERY_ID
+    while True:
+        with conn.cursor() as cur:
+            cur.execute(statement, limit_params(MAX_LIMIT, {"after": after}))
+            page = [row[0] for row in cur.fetchall()]
+        known.update(page)
+        if len(page) < MAX_LIMIT:
+            return known
+        after = page[-1]
 
 
 def pull_new_data(

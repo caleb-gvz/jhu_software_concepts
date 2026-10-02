@@ -1,6 +1,6 @@
 import pytest
 from load_data import load_records
-from pull_data import pull_new_data
+from pull_data import _known_ids, pull_new_data
 from scrape import ScrapeError, _parse_record
 from tests.test_scrape import _record
 
@@ -85,3 +85,21 @@ def test_summary_message_is_user_friendly(test_conn):
         "Pull stopped: Grad Cafe blocked or rejected the request (HTTP 403). "
         "1 record was added before it stopped."
     )
+
+
+def test_known_ids_reads_every_id_by_paging_through_the_capped_query(test_conn):
+    # 250 rows is three pages of at most 100: a capped query alone would lose 150 of them,
+    # and the pull would then re-download entries it already has.
+    load_records(test_conn, [_parsed(record_id) for record_id in range(1, 251)])
+
+    assert _known_ids(test_conn) == set(range(1, 251))
+
+
+def test_known_ids_of_an_empty_table_is_empty(test_conn):
+    assert _known_ids(test_conn) == set()
+
+
+def test_known_ids_handles_a_table_that_is_an_exact_multiple_of_the_page_size(test_conn):
+    load_records(test_conn, [_parsed(record_id) for record_id in range(1, 201)])   # 2 full pages
+
+    assert _known_ids(test_conn) == set(range(1, 201))

@@ -4,10 +4,21 @@ Every row below exists to exercise one rule from the assignment; the expected va
 in the tests were worked out by hand from this table.
 """
 
-import pytest
+import re
 
-from load_data import load_records
-from query_data import QUERIES, get_query, run_all, run_query
+import pytest
+from psycopg import sql
+
+from load_data import COLUMNS, load_records
+from query_data import (
+    QUERIES,
+    SORTABLE_COLUMNS,
+    fetch_applicants,
+    get_query,
+    run_all,
+    run_query,
+    search_applicants,
+)
 
 pytestmark = pytest.mark.db
 
@@ -155,3 +166,114 @@ def test_run_all_returns_every_query_with_its_result_lines(seeded_conn):
 def test_queries_on_an_empty_table_do_not_crash(test_conn):
     for query in QUERIES:
         assert run_query(test_conn, query)   # renders N/A / 0 instead of raising
+
+
+# ---- Module 5: composed SQL, bound values and an enforced LIMIT --------------------------
+
+def test_every_query_is_a_composed_select_with_a_bound_limit_and_bound_values():
+    for query in QUERIES:
+        assert isinstance(query.statement, sql.Composable)
+        text = query.sql
+        assert text.rstrip().endswith("LIMIT %(limit)s")
+        assert ";" not in text                       # one statement, nothing chained after it
+        placeholders = set(re.findall(r"%\((\w+)\)s", text)) - {"limit"}
+        assert placeholders == set(query.params)     # every value is bound, none is unused
+        for value in query.params.values():
+            assert f"'{value}'" not in text          # no filter value is spelled as a SQL literal
+
+
+def test_table_and_columns_are_quoted_identifiers_not_pasted_text():
+    for query in QUERIES:
+        assert '"applicants"' in query.sql
+
+
+def test_run_query_applies_the_limit_in_the_database(seeded_conn):
+    # O1 has four nationality groups; LIMIT 2 keeps only the first two rows of its ORDER BY
+    assert _lines(seeded_conn, "O1")[:2] == run_query(seeded_conn, get_query("O1"), limit=2)
+    assert len(run_query(seeded_conn, get_query("O1"), limit=2)) == 2
+    assert len(run_query(seeded_conn, get_query("O1"), limit=0)) == 1       # clamped up to 1
+    assert len(run_query(seeded_conn, get_query("O1"), limit=10**9)) == 4   # clamped to 100
+
+
+def test_run_query_rejects_a_hostile_limit_before_touching_the_database(seeded_conn):
+    with pytest.raises(ValueError, match="limit"):
+        run_query(seeded_conn, get_query("1"), limit="1; DROP TABLE applicants")
+    assert _lines(seeded_conn, "1") == ["Fall 2026 applicant count: 7"]
+
+
+def test_fetch_applicants_never_returns_more_than_the_maximum(test_conn):
+    load_records(test_conn, [_rec(record_id) for record_id in range(1, 131)])   # 130 rows
+
+    assert len(fetch_applicants(test_conn)) == 100                  # default is capped too
+    assert len(fetch_applicants(test_conn, limit=10**9)) == 100
+    assert len(fetch_applicants(test_conn, limit="3")) == 3
+    assert len(fetch_applicants(test_conn, limit=0)) == 1
+
+
+def test_fetch_applicants_rejects_a_hostile_limit_and_leaves_the_table_alone(test_conn):
+    load_records(test_conn, [_rec(1)])
+
+    with pytest.raises(ValueError, match="limit"):
+        fetch_applicants(test_conn, limit="1; DROP TABLE applicants")
+
+    assert len(fetch_applicants(test_conn)) == 1
+
+
+def test_search_filters_by_term_and_status_case_insensitively(seeded_conn):
+    rows = search_applicants(seeded_conn, term=" FALL 2026 ", status="accepted")
+    assert [row["p_id"] for row in rows] == [1, 3, 5, 14, 15]
+    assert set(rows[0]) == set(COLUMNS)
+
+
+def test_search_treats_blank_filters_as_not_given(seeded_conn):
+    assert len(search_applicants(seeded_conn, term="", status=None)) == 15
+
+
+def test_search_sorts_by_an_allowed_column_in_either_direction_with_nulls_last(seeded_conn):
+    ascending = search_applicants(seeded_conn, term="fall 2026", sort="gpa")
+    descending = search_applicants(seeded_conn, term="fall 2026", sort="gpa", descending=True)
+
+    assert [row["p_id"] for row in ascending] == [5, 3, 4, 1, 2, 14, 15]
+    assert [row["p_id"] for row in descending] == [1, 4, 3, 5, 2, 14, 15]
+
+
+def test_every_stored_column_can_be_sorted_on_and_nothing_else():
+    assert set(SORTABLE_COLUMNS) == set(COLUMNS)
+
+
+@pytest.mark.parametrize(
+    "hostile_sort",
+    [
+        "p_id; DROP TABLE applicants --",
+        "p_id DESC",
+        '"p_id"',
+        "p_id, (SELECT 1)",
+        "pg_sleep(5)",
+        "P_ID",
+        "no_such_column",
+        "",
+    ],
+)
+def test_search_rejects_any_sort_that_is_not_an_allowed_column_name(seeded_conn, hostile_sort):
+    with pytest.raises(ValueError, match="sort"):
+        search_applicants(seeded_conn, sort=hostile_sort)
+    assert len(search_applicants(seeded_conn)) == 15      # the table is untouched
+
+
+@pytest.mark.parametrize(
+    "payload",
+    ["' OR '1'='1", "fall 2026' --", "x'; DROP TABLE applicants; --", "%", "_ccepted", "\\"],
+)
+def test_search_values_are_bound_so_injection_text_matches_nothing(seeded_conn, payload):
+    assert search_applicants(seeded_conn, term=payload) == []
+    assert search_applicants(seeded_conn, status=payload) == []
+    assert len(search_applicants(seeded_conn)) == 15      # no data leaked, nothing dropped
+
+
+def test_search_caps_the_number_of_rows_returned(test_conn):
+    load_records(test_conn, [_rec(record_id) for record_id in range(1, 131)])
+
+    assert len(search_applicants(test_conn, limit=500)) == 100
+    assert len(search_applicants(test_conn, limit="2")) == 2
+    with pytest.raises(ValueError, match="limit"):
+        search_applicants(test_conn, limit="all")

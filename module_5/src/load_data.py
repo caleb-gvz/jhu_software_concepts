@@ -33,10 +33,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import psycopg
+from psycopg import sql
 
 from db_config import connect, report_connection_error
+from sql_safety import limit_params, limited
 
 Record = Dict[str, Any]
+
+# The table every module reads and writes, as a quoted SQL identifier (never plain text).
+APPLICANTS_TABLE = sql.Identifier("applicants")
 
 # The columns of the required ``applicants`` table, in table order.
 COLUMNS = (
@@ -45,8 +50,8 @@ COLUMNS = (
     "llm_generated_program", "llm_generated_university",
 )
 
-CREATE_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS applicants (
+CREATE_TABLE_STATEMENT = sql.SQL("""
+CREATE TABLE IF NOT EXISTS {table} (
     p_id                     INTEGER PRIMARY KEY,
     program                  TEXT,
     comments                 TEXT,
@@ -63,17 +68,35 @@ CREATE TABLE IF NOT EXISTS applicants (
     llm_generated_program    TEXT,
     llm_generated_university TEXT
 )
-"""
+""").format(table=APPLICANTS_TABLE)
 
-UPSERT_SQL = f"""
-INSERT INTO applicants ({", ".join(COLUMNS)})
-VALUES ({", ".join(f"%({column})s" for column in COLUMNS)})
-ON CONFLICT (p_id) DO UPDATE SET
-    llm_generated_program    = COALESCE(applicants.llm_generated_program,
-                                        EXCLUDED.llm_generated_program),
-    llm_generated_university = COALESCE(applicants.llm_generated_university,
-                                        EXCLUDED.llm_generated_university)
-"""
+RESET_STATEMENT = sql.SQL("TRUNCATE {table}").format(table=APPLICANTS_TABLE)
+
+COUNT_STATEMENT = sql.SQL("SELECT COUNT(*) FROM {table}").format(table=APPLICANTS_TABLE)
+
+# On a p_id conflict only the two LLM columns may change, and only when they are empty.
+_LLM_COLUMNS = ("llm_generated_program", "llm_generated_university")
+
+
+def _fill_when_empty(column: str) -> sql.Composed:
+    """``col = COALESCE(applicants.col, EXCLUDED.col)``: keep a stored value, else fill it."""
+    return sql.SQL("{column} = COALESCE({table}.{column}, EXCLUDED.{column})").format(
+        column=sql.Identifier(column), table=APPLICANTS_TABLE
+    )
+
+
+# Composed from identifiers and named placeholders: every column name is quoted and every
+# value is bound from the record dict, so no record content can reach the SQL text.
+UPSERT_STATEMENT = sql.SQL(
+    "INSERT INTO {table} ({columns}) VALUES ({values}) "
+    "ON CONFLICT ({key}) DO UPDATE SET {assignments}"
+).format(
+    table=APPLICANTS_TABLE,
+    columns=sql.SQL(", ").join(sql.Identifier(column) for column in COLUMNS),
+    values=sql.SQL(", ").join(sql.Placeholder(column) for column in COLUMNS),
+    key=sql.Identifier("p_id"),
+    assignments=sql.SQL(", ").join(_fill_when_empty(column) for column in _LLM_COLUMNS),
+)
 
 # Plausible score ranges. Values outside them are treated as missing.
 # Grad Cafe's API reports 0.0 for "not provided" (e.g. 35,263 of the 40,000 records
@@ -259,7 +282,7 @@ def merge_llm_fields(base_records: Sequence[Any], llm_records: Sequence[Any]) ->
 def create_table(conn: psycopg.Connection) -> None:
     """Create the ``applicants`` table if it does not exist yet."""
     with conn.cursor() as cur:
-        cur.execute(CREATE_TABLE_SQL)
+        cur.execute(CREATE_TABLE_STATEMENT)
     conn.commit()
 
 
@@ -270,14 +293,14 @@ def reset_table(conn: psycopg.Connection) -> None:
     ``--reset``) after the cleaning rules change or to rebuild from the JSON files.
     """
     with conn.cursor() as cur:
-        cur.execute("TRUNCATE applicants")
+        cur.execute(RESET_STATEMENT)
     conn.commit()
 
 
 def _count_rows(conn: psycopg.Connection) -> int:
-    """Number of rows currently in ``applicants``."""
+    """Number of rows currently in ``applicants`` (a one-row query, so ``LIMIT 1``)."""
     with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM applicants")
+        cur.execute(limited(COUNT_STATEMENT), limit_params(1))
         return cur.fetchone()[0]
 
 
@@ -289,7 +312,7 @@ def upsert_rows(conn: psycopg.Connection, rows: List[Record]) -> None:
     if not rows:
         return
     with conn.cursor() as cur:
-        cur.executemany(UPSERT_SQL, rows)
+        cur.executemany(UPSERT_STATEMENT, rows)
 
 
 def load_records(conn: psycopg.Connection, records: Sequence[Any]) -> LoadResult:

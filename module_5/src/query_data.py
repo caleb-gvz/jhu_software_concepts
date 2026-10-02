@@ -1,15 +1,27 @@
-"""Answer the Module 3 analysis questions with raw SQL (psycopg 3).
+"""Answer the analysis questions and look up applicants with composed, parameterized SQL.
 
-Each question is a ``Query``: the shared question text and result formatting from
-``questions.py`` plus the exact SQL and a short explanation of it. Keeping them as
-data lets the console output (``python query_data.py``), ``query_results.pdf`` and the
-tests all use one source of truth, so the SQL shown in the PDF is exactly the SQL that
-ran.
+Every statement here is built from ``psycopg.sql`` objects and executed separately, with
+its values supplied as bound parameters::
+
+    statement = limited(query.statement)                 # construction (a composed object)
+    cursor.execute(statement, limit_params(limit, query.params))   # execution + parameters
+
+* Table and column names that vary are quoted with ``sql.Identifier``.
+* Every value -- terms, status patterns, the LIKE/regex patterns, the row limit -- is a
+  named placeholder (``%(name)s``) filled from a parameter dict. No value is ever spliced
+  into the SQL text, and nothing here uses f-strings, ``+`` or ``.format()`` on raw SQL.
+* Every ``SELECT`` goes through ``sql_safety.limited``, so it ends in ``LIMIT %(limit)s``,
+  and the bound limit is clamped to 1..100 by ``sql_safety.clamp_limit``.
+
+Each analysis question is a ``Query``: the shared question text and result formatting
+from ``questions.py`` plus its composed statement, its parameters and a short
+explanation. Keeping them as data lets the console output (``python query_data.py``) and
+the tests use one source of truth.
 
 Matching rules used throughout (all case-insensitive):
 
-* term:   ``LOWER(TRIM(term)) = 'fall 2026'``
-* accept: ``status ILIKE 'accept%'``
+* term:   ``LOWER(TRIM(term)) = %(term)s``  with ``term = 'fall 2026'``
+* accept: ``status ILIKE %(accepted)s``     with ``accepted = 'accept%'``
 * averages skip NULLs automatically, so each average uses only the applicants who
   supplied that metric.
 """
@@ -18,108 +30,188 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
 
 from db_config import connect, report_connection_error
-from load_data import COLUMNS
+from load_data import APPLICANTS_TABLE, COLUMNS
 from questions import QUESTIONS, Rows, display_label, print_answer
+from sql_safety import limit_params, limited
 
-Q1_SQL = """\
-SELECT COUNT(*)
-FROM applicants
-WHERE LOWER(TRIM(term)) = 'fall 2026';"""
+# ---- values bound into the statements -------------------------------------------------
 
-Q2_SQL = """\
-SELECT 100.0 * COUNT(*) FILTER (WHERE LOWER(us_or_international) = 'international')
+TERM_FALL_2026 = "fall 2026"
+TERM_FALL_2025 = "fall 2025"
+ACCEPTED_PATTERN = "accept%"
+REJECTED_PATTERN = "reject%"
+COMPUTER_SCIENCE_PATTERN = "%computer science%"
+
+# The four target universities: (placeholder name, SQL operator, pattern). MIT is matched
+# by its full name and by the standalone word (a regex, so "admit" does not match).
+UNIVERSITY_TESTS: Tuple[Tuple[str, str, str], ...] = (
+    ("georgetown", "ILIKE", "%georgetown%"),
+    ("mit_name", "ILIKE", "%massachusetts institute of technology%"),
+    ("mit_word", "~*", r"\ymit\y"),
+    ("stanford", "ILIKE", "%stanford%"),
+    ("carnegie_mellon", "ILIKE", "%carnegie mellon%"),
+)
+UNIVERSITY_PARAMS: Dict[str, str] = {name: pattern for name, _, pattern in UNIVERSITY_TESTS}
+
+
+def _compose(template: str, **parts: sql.Composable) -> sql.Composed:
+    """Build a SELECT from a template whose ``{table}`` (and other slots) are composed.
+
+    The template holds only fixed SQL and ``%(name)s`` placeholders; the table name is
+    filled in as a quoted identifier, never as text.
+    """
+    return sql.SQL(template).format(table=APPLICANTS_TABLE, **parts)
+
+
+def _mentions_one_of_the_four_universities(column: str) -> sql.Composed:
+    """``(col ILIKE %(georgetown)s OR col ILIKE ... )`` for the named column."""
+    tests = [
+        sql.SQL("{column} {operator} {value}").format(
+            column=sql.Identifier(column),
+            operator=sql.SQL(operator),
+            value=sql.Placeholder(name),
+        )
+        for name, operator, _ in UNIVERSITY_TESTS
+    ]
+    return sql.SQL("({})").format(sql.SQL(" OR ").join(tests))
+
+
+# ---- the eleven analysis questions: statement (no LIMIT yet) + bound values ---------------
+
+Q1_STATEMENT = _compose(
+    """SELECT COUNT(*)
+FROM {table}
+WHERE LOWER(TRIM(term)) = %(term)s"""
+)
+Q1_PARAMS = {"term": TERM_FALL_2026}
+
+Q2_STATEMENT = _compose(
+    """SELECT 100.0 * COUNT(*) FILTER (WHERE LOWER(us_or_international) = %(international)s)
        / NULLIF(COUNT(*) FILTER (WHERE NULLIF(TRIM(us_or_international), '') IS NOT NULL), 0)
-FROM applicants;"""
+FROM {table}"""
+)
+Q2_PARAMS = {"international": "international"}
 
-Q3_SQL = """\
-SELECT AVG(gpa), AVG(gre), AVG(gre_v), AVG(gre_aw)
-FROM applicants;"""
+Q3_STATEMENT = _compose(
+    """SELECT AVG(gpa), AVG(gre), AVG(gre_v), AVG(gre_aw)
+FROM {table}"""
+)
+Q3_PARAMS: Dict[str, Any] = {}
 
-Q4_SQL = """\
-SELECT AVG(gpa)
-FROM applicants
-WHERE LOWER(TRIM(term)) = 'fall 2026'
-  AND LOWER(TRIM(us_or_international)) = 'american'
-  AND gpa IS NOT NULL;"""
+Q4_STATEMENT = _compose(
+    """SELECT AVG(gpa)
+FROM {table}
+WHERE LOWER(TRIM(term)) = %(term)s
+  AND LOWER(TRIM(us_or_international)) = %(nationality)s
+  AND gpa IS NOT NULL"""
+)
+Q4_PARAMS = {"term": TERM_FALL_2026, "nationality": "american"}
 
-Q5_SQL = """\
-SELECT 100.0 * COUNT(*) FILTER (WHERE status ILIKE 'accept%') / NULLIF(COUNT(*), 0)
-FROM applicants
-WHERE LOWER(TRIM(term)) = 'fall 2025';"""
+Q5_STATEMENT = _compose(
+    """SELECT 100.0 * COUNT(*) FILTER (WHERE status ILIKE %(accepted)s) / NULLIF(COUNT(*), 0)
+FROM {table}
+WHERE LOWER(TRIM(term)) = %(term)s"""
+)
+Q5_PARAMS = {"term": TERM_FALL_2025, "accepted": ACCEPTED_PATTERN}
 
-Q6_SQL = """\
-SELECT AVG(gpa)
-FROM applicants
-WHERE LOWER(TRIM(term)) = 'fall 2026'
-  AND status ILIKE 'accept%'
-  AND gpa IS NOT NULL;"""
+Q6_STATEMENT = _compose(
+    """SELECT AVG(gpa)
+FROM {table}
+WHERE LOWER(TRIM(term)) = %(term)s
+  AND status ILIKE %(accepted)s
+  AND gpa IS NOT NULL"""
+)
+Q6_PARAMS = {"term": TERM_FALL_2026, "accepted": ACCEPTED_PATTERN}
 
-Q7_SQL = r"""SELECT COUNT(*)
-FROM applicants
-WHERE (program ILIKE '%john% hopkins%' OR program ~* '\yjhu\y')
-  AND program ILIKE '%computer science%'
-  AND degree ILIKE 'master%';"""
+Q7_STATEMENT = _compose(
+    """SELECT COUNT(*)
+FROM {table}
+WHERE (program ILIKE %(johns_hopkins)s OR program ~* %(jhu_word)s)
+  AND program ILIKE %(computer_science)s
+  AND degree ILIKE %(masters)s"""
+)
+Q7_PARAMS = {
+    "johns_hopkins": "%john% hopkins%",
+    "jhu_word": r"\yjhu\y",
+    "computer_science": COMPUTER_SCIENCE_PATTERN,
+    "masters": "master%",
+}
 
-Q8_SQL = r"""SELECT COUNT(*)
-FROM applicants
-WHERE LOWER(TRIM(term)) = 'fall 2026'
-  AND status ILIKE 'accept%'
-  AND degree ILIKE 'phd'
-  AND program ILIKE '%computer science%'
-  AND (program ILIKE '%georgetown%'
-       OR program ILIKE '%massachusetts institute of technology%'
-       OR program ~* '\ymit\y'
-       OR program ILIKE '%stanford%'
-       OR program ILIKE '%carnegie mellon%');"""
+Q8_STATEMENT = _compose(
+    """SELECT COUNT(*)
+FROM {table}
+WHERE LOWER(TRIM(term)) = %(term)s
+  AND status ILIKE %(accepted)s
+  AND degree ILIKE %(degree)s
+  AND program ILIKE %(computer_science)s
+  AND {at_one_of_the_four}""",
+    at_one_of_the_four=_mentions_one_of_the_four_universities("program"),
+)
+Q8_PARAMS = {
+    "term": TERM_FALL_2026,
+    "accepted": ACCEPTED_PATTERN,
+    "degree": "phd",
+    "computer_science": COMPUTER_SCIENCE_PATTERN,
+    **UNIVERSITY_PARAMS,
+}
 
-Q9_SQL = r"""SELECT
-    COUNT(*) FILTER (WHERE program ILIKE '%computer science%'
-        AND (program ILIKE '%georgetown%'
-             OR program ILIKE '%massachusetts institute of technology%'
-             OR program ~* '\ymit\y'
-             OR program ILIKE '%stanford%'
-             OR program ILIKE '%carnegie mellon%')) AS original_field_count,
-    COUNT(*) FILTER (WHERE llm_generated_program ILIKE '%computer science%'
-        AND (llm_generated_university ILIKE '%georgetown%'
-             OR llm_generated_university ILIKE '%massachusetts institute of technology%'
-             OR llm_generated_university ~* '\ymit\y'
-             OR llm_generated_university ILIKE '%stanford%'
-             OR llm_generated_university ILIKE '%carnegie mellon%')) AS llm_field_count
-FROM applicants
-WHERE LOWER(TRIM(term)) = 'fall 2026'
-  AND status ILIKE 'accept%'
-  AND degree ILIKE 'phd';"""
+Q9_STATEMENT = _compose(
+    """SELECT
+    COUNT(*) FILTER (WHERE program ILIKE %(computer_science)s
+        AND {original_university}) AS original_field_count,
+    COUNT(*) FILTER (WHERE llm_generated_program ILIKE %(computer_science)s
+        AND {llm_university}) AS llm_field_count
+FROM {table}
+WHERE LOWER(TRIM(term)) = %(term)s
+  AND status ILIKE %(accepted)s
+  AND degree ILIKE %(degree)s""",
+    original_university=_mentions_one_of_the_four_universities("program"),
+    llm_university=_mentions_one_of_the_four_universities("llm_generated_university"),
+)
+Q9_PARAMS = Q8_PARAMS
 
-O1_SQL = """\
-SELECT COALESCE(NULLIF(TRIM(us_or_international), ''), 'Unknown') AS nationality_group,
+O1_STATEMENT = _compose(
+    """SELECT COALESCE(NULLIF(TRIM(us_or_international), ''), 'Unknown') AS nationality_group,
        COUNT(*) AS entries,
-       100.0 * COUNT(*) FILTER (WHERE status ILIKE 'accept%') / COUNT(*) AS acceptance_percent
-FROM applicants
-WHERE LOWER(TRIM(term)) = 'fall 2026'
+       100.0 * COUNT(*) FILTER (WHERE status ILIKE %(accepted)s) / COUNT(*) AS acceptance_percent
+FROM {table}
+WHERE LOWER(TRIM(term)) = %(term)s
 GROUP BY nationality_group
-ORDER BY entries DESC, nationality_group;"""
+ORDER BY entries DESC, nationality_group"""
+)
+O1_PARAMS = {"term": TERM_FALL_2026, "accepted": ACCEPTED_PATTERN}
 
-O2_SQL = """\
-SELECT CASE WHEN status ILIKE 'accept%' THEN 'Accepted' ELSE 'Rejected' END AS outcome,
+O2_STATEMENT = _compose(
+    """SELECT CASE WHEN status ILIKE %(accepted)s THEN 'Accepted' ELSE 'Rejected' END AS outcome,
        COUNT(*) AS entries,
        AVG(gpa) AS average_gpa,
        AVG(gre) AS average_gre_quantitative
-FROM applicants
-WHERE LOWER(TRIM(term)) = 'fall 2026'
-  AND (status ILIKE 'accept%' OR status ILIKE 'reject%')
+FROM {table}
+WHERE LOWER(TRIM(term)) = %(term)s
+  AND (status ILIKE %(accepted)s OR status ILIKE %(rejected)s)
 GROUP BY outcome
-ORDER BY outcome;"""
+ORDER BY outcome"""
+)
+O2_PARAMS = {
+    "term": TERM_FALL_2026,
+    "accepted": ACCEPTED_PATTERN,
+    "rejected": REJECTED_PATTERN,
+}
 
-SQL_BY_NUMBER: Dict[str, str] = {
-    "1": Q1_SQL, "2": Q2_SQL, "3": Q3_SQL, "4": Q4_SQL, "5": Q5_SQL, "6": Q6_SQL,
-    "7": Q7_SQL, "8": Q8_SQL, "9": Q9_SQL, "O1": O1_SQL, "O2": O2_SQL,
+STATEMENT_BY_NUMBER: Dict[str, Tuple[sql.Composable, Mapping[str, Any]]] = {
+    "1": (Q1_STATEMENT, Q1_PARAMS), "2": (Q2_STATEMENT, Q2_PARAMS),
+    "3": (Q3_STATEMENT, Q3_PARAMS), "4": (Q4_STATEMENT, Q4_PARAMS),
+    "5": (Q5_STATEMENT, Q5_PARAMS), "6": (Q6_STATEMENT, Q6_PARAMS),
+    "7": (Q7_STATEMENT, Q7_PARAMS), "8": (Q8_STATEMENT, Q8_PARAMS),
+    "9": (Q9_STATEMENT, Q9_PARAMS), "O1": (O1_STATEMENT, O1_PARAMS),
+    "O2": (O2_STATEMENT, O2_PARAMS),
 }
 
 EXPLANATION_BY_NUMBER: Dict[str, str] = {
@@ -156,15 +248,21 @@ EXPLANATION_BY_NUMBER: Dict[str, str] = {
 
 
 @dataclass(frozen=True)
-class Query:
-    """One question bound to the SQL that answers it and a plain-language explanation."""
+class Query:  # pylint: disable=too-many-instance-attributes
+    """One question bound to its composed SQL, parameter values and an explanation."""
 
     number: str
     title: str
     question: str
-    sql: str
+    statement: sql.Composable
+    params: Mapping[str, Any]
     explanation: str
     render: Callable[[Rows], List[str]]
+
+    @property
+    def sql(self) -> str:
+        """The statement as it is sent, ``LIMIT %(limit)s`` included (for display and tests)."""
+        return limited(self.statement).as_string()
 
 
 QUERIES: Tuple[Query, ...] = tuple(
@@ -172,7 +270,8 @@ QUERIES: Tuple[Query, ...] = tuple(
         number=q.number,
         title=q.title,
         question=q.question,
-        sql=SQL_BY_NUMBER[q.number],
+        statement=STATEMENT_BY_NUMBER[q.number][0],
+        params=STATEMENT_BY_NUMBER[q.number][1],
         explanation=EXPLANATION_BY_NUMBER[q.number],
         render=q.render,
     )
@@ -188,39 +287,107 @@ def get_query(number: str) -> Query:
     raise KeyError(number)
 
 
-def run_query(conn: psycopg.Connection, query: Query) -> List[str]:
-    """Execute one query and return its formatted result lines."""
+def run_query(conn: psycopg.Connection, query: Query, limit: Any = None) -> List[str]:
+    """Execute one query with its LIMIT enforced and return its formatted result lines.
+
+    ``limit`` is clamped to 1..100 (``ValueError`` if it is not a whole number); the
+    statement is composed first and executed with the bound parameters second.
+    """
+    statement = limited(query.statement)
+    params = limit_params(limit, query.params)
     with conn.cursor() as cur:
-        cur.execute(query.sql)
+        cur.execute(statement, params)
         return query.render(cur.fetchall())
 
 
-def run_all(conn: psycopg.Connection) -> List[Tuple[Query, List[str]]]:
+def run_all(conn: psycopg.Connection, limit: Any = None) -> List[Tuple[Query, List[str]]]:
     """Run every query in order, pairing each with its formatted result lines."""
-    return [(query, run_query(conn, query)) for query in QUERIES]
+    return [(query, run_query(conn, query, limit)) for query in QUERIES]
 
 
-FETCH_APPLICANTS_SQL = sql.SQL("SELECT {columns} FROM applicants ORDER BY p_id").format(
-    columns=sql.SQL(", ").join(sql.Identifier(column) for column in COLUMNS)
+# ---- applicant look-ups (the paths that take caller-supplied values) ---------------------
+
+# Any stored column may be used to sort; the allow-list is the only source of sort names.
+SORTABLE_COLUMNS: Tuple[str, ...] = COLUMNS
+_KEY_COLUMN = "p_id"
+
+SELECT_APPLICANTS = sql.SQL("SELECT {columns} FROM {table}").format(
+    columns=sql.SQL(", ").join(sql.Identifier(column) for column in COLUMNS),
+    table=APPLICANTS_TABLE,
 )
 
 
-def fetch_applicants(
-    conn: psycopg.Connection, limit: Optional[int] = None
-) -> List[Dict[str, Any]]:
+def fetch_applicants(conn: psycopg.Connection, limit: Any = None) -> List[Dict[str, Any]]:
     """Return stored applicants as dicts keyed by the Module 3 column names.
 
     Every dict has exactly the keys in ``load_data.COLUMNS`` (``p_id``, ``program``,
-    ... ``llm_generated_university``), ordered by ``p_id``. ``limit`` caps how many
-    rows are returned.
+    ... ``llm_generated_university``), ordered by ``p_id``. At most ``limit`` rows come
+    back; ``None`` means the default, and the value is always clamped to 1..100.
     """
-    statement = FETCH_APPLICANTS_SQL
-    params: Tuple[Any, ...] = ()
-    if limit is not None:
-        statement = sql.SQL("{} LIMIT %s").format(FETCH_APPLICANTS_SQL)
-        params = (limit,)
+    statement = limited(
+        sql.SQL("{select} ORDER BY {key}").format(
+            select=SELECT_APPLICANTS, key=sql.Identifier(_KEY_COLUMN)
+        )
+    )
+    params = limit_params(limit)
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(statement, params)
+        return cur.fetchall()
+
+
+def _equals_ignoring_case(column: str) -> sql.Composed:
+    """``LOWER(TRIM(col)) = LOWER(TRIM(%(col)s))`` -- the bound value shares the column name."""
+    return sql.SQL("LOWER(TRIM({column})) = LOWER(TRIM({value}))").format(
+        column=sql.Identifier(column), value=sql.Placeholder(column)
+    )
+
+
+def search_applicants(  # pylint: disable=too-many-arguments
+    conn: psycopg.Connection,
+    *,
+    term: Optional[str] = None,
+    status: Optional[str] = None,
+    sort: str = _KEY_COLUMN,
+    descending: bool = False,
+    limit: Any = None,
+) -> List[Dict[str, Any]]:
+    """Applicants filtered by ``term`` and/or ``status`` (exact, case-insensitive).
+
+    * ``term`` / ``status`` are bound parameters; blank or ``None`` means no filter. They
+      are compared with ``=`` rather than ``LIKE``, so ``%`` and ``_`` are ordinary
+      characters and a value can never widen the match.
+    * ``sort`` must be one of ``SORTABLE_COLUMNS``; it is then quoted with
+      ``sql.Identifier``. Anything else raises ``ValueError``.
+    * Direction comes from the ``descending`` flag, never from caller text. NULLs sort last.
+    * At most ``limit`` rows come back, clamped to 1..100 (``ValueError`` if not a number).
+    """
+    if sort not in SORTABLE_COLUMNS:
+        raise ValueError(f"sort must be one of: {', '.join(SORTABLE_COLUMNS)}")
+
+    conditions: List[sql.Composable] = []
+    params: Dict[str, Any] = {}
+    for column, value in (("term", term), ("status", status)):
+        if value:
+            conditions.append(_equals_ignoring_case(column))
+            params[column] = str(value)
+    where = (
+        sql.SQL(" WHERE {}").format(sql.SQL(" AND ").join(conditions))
+        if conditions
+        else sql.SQL("")
+    )
+
+    statement = limited(
+        sql.SQL("{select}{where} ORDER BY {sort} {direction} NULLS LAST, {key}").format(
+            select=SELECT_APPLICANTS,
+            where=where,
+            sort=sql.Identifier(sort),
+            direction=sql.SQL("DESC" if descending else "ASC"),
+            key=sql.Identifier(_KEY_COLUMN),
+        )
+    )
+    bound = limit_params(limit, params)
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(statement, bound)
         return cur.fetchall()
 
 

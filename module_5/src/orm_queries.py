@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from db_config import report_connection_error
 from models import Applicant, make_session_factory
 from questions import QUESTIONS, Question, Rows, display_label, get_question, print_answer
+from sql_safety import clamp_limit
 
 # Pylint cannot see through SQLAlchemy's dynamic ``func`` namespace, so it reports every
 # ``func.count(...)`` call as "not callable". That is a known false positive.
@@ -35,6 +36,15 @@ REQUIRED_BY_ASSIGNMENT = ("1", "4", "5", "8", "9", "O1")
 
 
 # ---- reusable conditions -------------------------------------------------------------
+
+def _all_rows(session: Session, statement) -> Rows:
+    """Execute a SELECT with the application-wide row cap applied.
+
+    ``.limit()`` always renders a ``LIMIT`` clause (its value is a bound parameter), so
+    no ORM query can return more than ``sql_safety.MAX_LIMIT`` rows.
+    """
+    return session.execute(statement.limit(clamp_limit())).all()
+
 
 def _term_is(term: str):
     """Case- and whitespace-insensitive match on the term column."""
@@ -73,9 +83,10 @@ def _fall_2026_accepted_phd():
 
 def q1(session: Session) -> Rows:
     """Q1: number of Fall 2026 entries."""
-    return session.execute(
+    return _all_rows(
+        session,
         select(func.count()).select_from(Applicant).where(_term_is("fall 2026"))
-    ).all()
+    )
 
 
 def q2(session: Session) -> Rows:
@@ -86,56 +97,62 @@ def q2(session: Session) -> Rows:
     classified = func.count().filter(
         func.nullif(func.trim(Applicant.us_or_international), "").is_not(None)
     )
-    return session.execute(
+    return _all_rows(
+        session,
         select(_percent_of_total(international, func.nullif(classified, 0)))
-    ).all()
+    )
 
 
 def q3(session: Session) -> Rows:
     """Q3: each average over only the applicants who supplied that metric (AVG skips NULL)."""
-    return session.execute(
+    return _all_rows(
+        session,
         select(
             func.avg(Applicant.gpa),
             func.avg(Applicant.gre),
             func.avg(Applicant.gre_v),
             func.avg(Applicant.gre_aw),
         )
-    ).all()
+    )
 
 
 def q4(session: Session) -> Rows:
     """Q4: average GPA of American Fall 2026 applicants who report a GPA."""
-    return session.execute(
+    return _all_rows(
+        session,
         select(func.avg(Applicant.gpa)).where(
             _term_is("fall 2026"),
             func.lower(func.trim(Applicant.us_or_international)) == "american",
             Applicant.gpa.is_not(None),
         )
-    ).all()
+    )
 
 
 def q5(session: Session) -> Rows:
     """Q5: percentage of Fall 2025 entries that are acceptances."""
     accepted = func.count().filter(_is_accepted())
-    return session.execute(
+    return _all_rows(
+        session,
         select(_percent_of_total(accepted, func.nullif(func.count(), 0))).where(
             _term_is("fall 2025")
         )
-    ).all()
+    )
 
 
 def q6(session: Session) -> Rows:
     """Q6: average GPA of accepted Fall 2026 applicants who report a GPA."""
-    return session.execute(
+    return _all_rows(
+        session,
         select(func.avg(Applicant.gpa)).where(
             _term_is("fall 2026"), _is_accepted(), Applicant.gpa.is_not(None)
         )
-    ).all()
+    )
 
 
 def q7(session: Session) -> Rows:
     """Q7: Johns Hopkins / JHU Computer Science master's entries (original fields)."""
-    return session.execute(
+    return _all_rows(
+        session,
         select(func.count()).select_from(Applicant).where(
             or_(
                 Applicant.program.ilike("%john% hopkins%"),
@@ -144,18 +161,19 @@ def q7(session: Session) -> Rows:
             Applicant.program.ilike("%computer science%"),
             Applicant.degree.ilike("master%"),
         )
-    ).all()
+    )
 
 
 def q8(session: Session) -> Rows:
     """Q8: Fall 2026 accepted PhD Computer Science entries at the four universities."""
-    return session.execute(
+    return _all_rows(
+        session,
         select(func.count()).select_from(Applicant).where(
             _fall_2026_accepted_phd(),
             Applicant.program.ilike("%computer science%"),
             _mentions_one_of_the_four_universities(Applicant.program),
         )
-    ).all()
+    )
 
 
 def q9(session: Session) -> Rows:
@@ -172,9 +190,10 @@ def q9(session: Session) -> Rows:
             _mentions_one_of_the_four_universities(Applicant.llm_generated_university),
         )
     )
-    return session.execute(
+    return _all_rows(
+        session,
         select(original_field_count, llm_field_count).where(_fall_2026_accepted_phd())
-    ).all()
+    )
 
 
 def o1(session: Session) -> Rows:
@@ -186,18 +205,20 @@ def o1(session: Session) -> Rows:
     acceptance_percent = _percent_of_total(
         func.count().filter(_is_accepted()), func.count()
     ).label("acceptance_percent")
-    return session.execute(
+    return _all_rows(
+        session,
         select(nationality_group, entries, acceptance_percent)
         .where(_term_is("fall 2026"))
         .group_by(nationality_group)
         .order_by(entries.desc(), nationality_group)
-    ).all()
+    )
 
 
 def o2(session: Session) -> Rows:
     """Original question 2: Fall 2026 accepted vs rejected, entries / avg GPA / avg GRE Quant."""
     outcome = case((_is_accepted(), "Accepted"), else_="Rejected").label("outcome")
-    return session.execute(
+    return _all_rows(
+        session,
         select(
             outcome,
             func.count().label("entries"),
@@ -210,7 +231,7 @@ def o2(session: Session) -> Rows:
         )
         .group_by(outcome)
         .order_by(outcome)
-    ).all()
+    )
 
 
 ORM_QUERIES: Dict[str, Callable[[Session], Rows]] = {
@@ -246,7 +267,7 @@ def get_analysis(session: Session) -> Dict[str, Any]:
       page prefixes with "Answer:").
     """
     analysis: Dict[str, Any] = {
-        "total_entries": session.scalar(select(func.count()).select_from(Applicant)),
+        "total_entries": session.scalar(select(func.count()).select_from(Applicant).limit(1)),
         "assigned": [],
         "original": [],
     }
