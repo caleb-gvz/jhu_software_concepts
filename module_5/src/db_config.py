@@ -1,17 +1,22 @@
 """Database connection settings, read from environment variables only.
 
-Credentials never live in the repository. The connection is configured by one variable:
+Credentials never live in the repository: no host, user or password appears in the code.
+The connection is configured by five variables:
+
+    DB_HOST      (default: localhost)
+    DB_PORT      (default: 5432)
+    DB_NAME      (default: gradcafe)
+    DB_USER
+    DB_PASSWORD
+
+Each one is read from the process environment first and from the git-ignored ``.env``
+file second (copy ``.env.example`` to ``.env``). One optional variable overrides all five
+at once, which is how CI and the tests point at a scratch database:
 
     DATABASE_URL   e.g. postgresql://gradcafe_app:<password>@localhost:5432/gradcafe
 
-When ``DATABASE_URL`` is not set, the URL is assembled from the standard libpq
-variables instead, so Module 3 setups keep working unchanged:
-
-    PGHOST      (default: localhost)
-    PGPORT      (default: 5432)
-    PGDATABASE  (default: gradcafe)
-    PGUSER
-    PGPASSWORD
+The old libpq variables (``PGHOST``, ``PGPASSWORD`` ...) are deliberately *not* read: a
+superuser password left in someone's shell must never become the application's login.
 
 ``connect()`` serves the raw-SQL code (psycopg 3) and ``sqlalchemy_url()`` serves the
 ORM code, so both always talk to the same database with the same settings. Both accept
@@ -56,20 +61,29 @@ def _setting(name: str, file_values: Dict[str, str], default: Any = None) -> Any
     return os.environ.get(name, file_values.get(name, default))
 
 
+def setting(name: str, default: Any = None) -> Any:
+    """Any configuration value by name: environment, then ``.env``, then ``default``."""
+    return _setting(name, _read_env_file(), default)
+
+
 def connection_settings() -> Dict[str, Any]:
-    """PG* settings used when DATABASE_URL is absent; user/password are None when unset."""
+    """DB_* settings used when DATABASE_URL is absent; user/password are None when unset."""
     file_values = _read_env_file()
+    try:
+        port = int(_setting("DB_PORT", file_values, DEFAULT_PORT))
+    except ValueError as exc:
+        raise ValueError("DB_PORT must be a whole number") from exc
     return {
-        "host": _setting("PGHOST", file_values, DEFAULT_HOST),
-        "port": int(_setting("PGPORT", file_values, DEFAULT_PORT)),
-        "dbname": _setting("PGDATABASE", file_values, DEFAULT_DATABASE),
-        "user": _setting("PGUSER", file_values),
-        "password": _setting("PGPASSWORD", file_values),
+        "host": _setting("DB_HOST", file_values, DEFAULT_HOST),
+        "port": port,
+        "dbname": _setting("DB_NAME", file_values, DEFAULT_DATABASE),
+        "user": _setting("DB_USER", file_values),
+        "password": _setting("DB_PASSWORD", file_values),
     }
 
 
 def database_url() -> str:
-    """The PostgreSQL URL: ``DATABASE_URL`` if set, otherwise built from the PG* settings."""
+    """The PostgreSQL URL: ``DATABASE_URL`` if set, otherwise built from the DB_* settings."""
     explicit = _setting("DATABASE_URL", _read_env_file())
     if explicit:
         return explicit
@@ -99,7 +113,8 @@ def _libpq_url(url: str) -> str:
 
 CONNECTION_HELP = (
     "Could not connect to PostgreSQL. Check that the server is running and that "
-    "DATABASE_URL (or PGHOST, PGPORT, PGDATABASE, PGUSER and PGPASSWORD) is set."
+    "DB_HOST, DB_PORT, DB_NAME, DB_USER and DB_PASSWORD (or DATABASE_URL) are set "
+    "in your environment or in .env."
 )
 
 

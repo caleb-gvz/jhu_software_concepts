@@ -2,9 +2,13 @@
 
 Database-backed tests use a scratch database, never the real one:
 
-* ``TEST_DATABASE_URL`` if it is set (CI sets it), otherwise
-* the normal ``DATABASE_URL`` / PG* settings with the database name replaced by
-  ``gradcafe_test``.
+* ``TEST_DATABASE_URL`` (environment or ``.env``; CI sets it) -- an *owner-level*
+  connection, because the tests create and empty the table. Otherwise
+* the normal ``DB_*`` / ``DATABASE_URL`` settings with the database name replaced by
+  ``gradcafe_m5_test``.
+
+``TEST_APP_DATABASE_URL`` is the least-privilege application role's URL for the same
+scratch database; ``tests/test_least_privilege.py`` uses it and is skipped without it.
 
 When that database cannot be reached the database tests are skipped with a clear
 reason (and the coverage gate then fails, so a green run always includes them).
@@ -12,17 +16,16 @@ reason (and the coverage gate then fails, so a green run always includes them).
 
 from __future__ import annotations
 
-import os
 from typing import Any, Callable, Dict
 
 import psycopg
 import pytest
 
-from db_config import connect, database_url, with_database
+from db_config import connect, database_url, setting, with_database
 from flask_app import create_app
 from load_data import create_table
 
-TEST_DATABASE = "gradcafe_test"
+TEST_DATABASE = "gradcafe_m5_test"
 
 # Every test must carry at least one of these (see pytest.ini); enforced below.
 REQUIRED_MARKERS = {"web", "buttons", "analysis", "db", "integration"}
@@ -44,7 +47,7 @@ def pytest_collection_modifyitems(config, items):
 
 def test_database_url() -> str:
     """URL of the scratch database the tests may freely empty and refill."""
-    return os.environ.get("TEST_DATABASE_URL") or with_database(database_url(), TEST_DATABASE)
+    return setting("TEST_DATABASE_URL") or with_database(database_url(), TEST_DATABASE)
 
 
 # pytest would otherwise try to collect the helper above as a test.
