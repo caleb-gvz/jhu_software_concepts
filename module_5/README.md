@@ -316,3 +316,41 @@ for `module_4/`. A screenshot of a successful run is `actions_success.png`.
 
 To enable the Snyk job, add a repository secret named `SNYK_TOKEN` (GitHub: *Settings > Secrets and
 variables > Actions > New repository secret*) holding the token from your Snyk account settings.
+
+## Project layout
+
+```
+.github/workflows/ci.yml        (repository root) the four CI jobs
+module_5/
+├── src/
+│   ├── flask_app.py            Flask app factory and routes
+│   ├── query_data.py           analysis queries + applicant search, composed with psycopg.sql
+│   ├── sql_safety.py           LIMIT clamp/compose/bind helpers
+│   ├── load_data.py            schema constants, validation, composed upsert, loader CLI
+│   ├── pull_data.py            "Pull Data": scrape new entries and load them
+│   ├── orm_queries.py, models.py   the same analysis through SQLAlchemy (every select limited)
+│   ├── db_config.py            DB_* environment settings
+│   ├── db_setup.sql, db_privileges.sql   create the roles, databases, table and grants
+│   ├── db_verify_privileges.sql, db_demo_refusals.sql   privilege evidence
+│   ├── make_report.py, make_zip.py       build module_5_report.pdf and the Canvas zip
+│   └── web_assets/             templates/ and static/ (a package, so the wheel ships them)
+├── tests/                      pytest suite (100% coverage of src/)
+├── setup.py, requirements.in, requirements.txt, pytest.ini, .env.example
+├── dependency.svg (+ .png)     pydeps graph
+├── pylint_report.txt, coverage_summary.txt, least_privilege_evidence.txt
+├── snyk-analysis.png           snyk test screenshot
+├── actions_success.png         a successful GitHub Actions run
+└── module_5_report.pdf         the written report
+```
+
+## Known limitations
+
+* `GET /applicants` is read-only but has no authentication. It serves public Grad Cafe data from a local
+  development server; it is not meant to be exposed to the internet as is.
+* `requirements.txt` was compiled for Python 3.12+ (CI uses 3.12, development used 3.14). `setup.py` declares
+  `>=3.10`, but the pinned set was not resolved or tested on 3.10 or 3.11.
+* `load_data.py --reset` needs the owner role (the app role cannot `TRUNCATE`), by design.
+* The dependency graph starts from `flask_app.py`, so command-line-only modules (`make_report`, `make_zip`,
+  `run_llm_standardization`) do not appear in it.
+* The optional local-LLM standardizer (`src/llm_hosting`) needs its own heavy dependencies and is not part
+  of the install, the tests or the Snyk scan.
