@@ -301,8 +301,9 @@ package).
 **Findings (2026-10-01).** `snyk test` tested all 37 pinned dependencies and reported **0 issues** ("no
 vulnerable paths found"), so no package had to be patched or removed. The full output is saved in
 `snyk_test_output.txt`. `snyk-analysis.png` is a terminal-style rendering of that exact saved output, captioned
-as such in the image itself. The pins are re-checked on every push by the CI `snyk` job once the `SNYK_TOKEN`
-secret is set, which would flag any vulnerability disclosed after this date.
+as such in the image itself. The pins are re-checked on every push by the CI `snyk` job (the `SNYK_TOKEN`
+secret is set, and run #7 performed the real scan and passed), which would flag any high or critical
+vulnerability disclosed after this date.
 
 **Snyk Code (extra credit, `snyk code test src`).** The first scan found 9 issues: one **HIGH** SQL
 Injection and eight **LOW** Path Traversal notes. Evidence: `snyk_code_output.txt` and
@@ -333,14 +334,16 @@ request** as four separate jobs, so each failure is visible on its own:
 |---|---|
 | `pylint` | `pylint src --fail-under=10`: the build fails if the score is below 10. |
 | `dependency-graph` | Installs Graphviz, runs `pydeps ... -o dependency.svg`, and `test -s dependency.svg` fails the job if the file is missing or empty. The SVG is uploaded as an artifact. |
-| `snyk` | `snyk test` on the pinned dependencies, failing on high or critical issues. It needs a `SNYK_TOKEN` repository secret; without one the job passes with a visible warning that the scan was skipped. |
+| `snyk` | `snyk test` on the pinned dependencies, failing on high or critical issues. It reads the `SNYK_TOKEN` repository secret (set); without one the job would pass with a visible warning that the scan was skipped. |
 | `pytest` | Starts PostgreSQL 16, runs `src/db_setup.sql` to create the owner and least-privilege roles, then runs the full marked suite with the 100% coverage gate (`--cov-fail-under=100` in `pytest.ini`), including the live least-privilege tests. A failing test fails the build. |
 
 All four jobs install from the pinned `requirements.txt`. Module 4's workflow (`tests.yml`) keeps running
 for `module_4/`. A screenshot of a successful run is `actions_success.png`.
 
-To enable the Snyk job, add a repository secret named `SNYK_TOKEN` (GitHub: *Settings > Secrets and
-variables > Actions > New repository secret*) holding the token from your Snyk account settings.
+The Snyk job needs a repository secret named `SNYK_TOKEN` (GitHub: *Settings > Secrets and variables >
+Actions > New repository secret*) holding a Snyk Personal Access Token (Snyk account settings > Personal access
+tokens; they expire after at most 90 days, so the secret must be renewed). The screenshot above is run #7,
+the first run with the secret in place: the real scan step ran and the "skipped" notice step did not.
 
 ## Project layout
 
