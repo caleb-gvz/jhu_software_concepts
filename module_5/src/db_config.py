@@ -21,6 +21,7 @@ an explicit URL, which is how the Flask app factory and the tests override the d
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -94,6 +95,17 @@ def _libpq_url(url: str) -> str:
     if "+" not in parsed.drivername:
         return url
     return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
+
+
+CONNECTION_HELP = (
+    "Could not connect to PostgreSQL. Check that the server is running and that "
+    "DATABASE_URL (or PGHOST, PGPORT, PGDATABASE, PGUSER and PGPASSWORD) is set."
+)
+
+
+def report_connection_error(details: object) -> None:
+    """Print the standard 'cannot reach PostgreSQL' message, with the driver's details."""
+    print(f"{CONNECTION_HELP}\nDetails: {details}", file=sys.stderr)
 
 
 def connect(url: Optional[str] = None, **kwargs: Any) -> psycopg.Connection:

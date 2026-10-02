@@ -112,8 +112,10 @@ def _launch_shards(
         with open(shard_input, "w", encoding="utf-8") as f:
             json.dump(shard, f, ensure_ascii=False)
         env = dict(os.environ, N_THREADS=str(threads_per_shard))
+        # The shards must run in parallel and outlive this loop; the caller waits on them,
+        # so a ``with`` block (which would wait immediately) is the wrong tool here.
         processes.append(
-            subprocess.Popen(
+            subprocess.Popen(  # pylint: disable=consider-using-with
                 [
                     sys.executable,
                     str(llm_hosting_dir / "app.py"),

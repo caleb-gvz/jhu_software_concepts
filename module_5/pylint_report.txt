@@ -1,0 +1,9 @@
+# Pylint evidence for module_5/src  (2026-10-01)
+# Command (run from module_5/, venv active):  pylint src
+# Version: pylint 4.1.1
+
+
+--------------------------------------------------------------------
+Your code has been rated at 10.00/10 (previous run: 10.00/10, +0.00)
+
+# exit status: 0

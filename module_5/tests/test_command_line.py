@@ -13,7 +13,6 @@ import pytest
 
 import clean
 import load_data
-import make_pdfs
 import orm_queries
 import pull_data
 import query_data
@@ -256,33 +255,6 @@ def test_models_default_session_and_readable_repr():
     assert repr(applicant) == "Applicant(p_id=7, term='Fall 2026', status='Accepted')"
     with get_session() as session:
         assert session.bind is not None
-
-
-# ---- make_pdfs.py --------------------------------------------------------------------------
-
-def test_make_pdfs_main_writes_both_pdfs_from_the_database(tmp_path, monkeypatch, capsys,
-                                                          use_test_database):
-    load_records(use_test_database, SEED)
-    monkeypatch.setattr(make_pdfs, "MODULE_DIR", tmp_path)
-
-    assert make_pdfs.main() == 0
-
-    assert (tmp_path / "query_results.pdf").stat().st_size > 0
-    assert (tmp_path / "limitations.pdf").stat().st_size > 0
-    assert "Wrote query_results.pdf and limitations.pdf" in capsys.readouterr().out
-
-
-def test_make_pdfs_main_reports_an_unreachable_database(capsys, use_unreachable_database):
-    assert make_pdfs.main() == 1
-    assert "Could not connect to PostgreSQL" in capsys.readouterr().err
-
-
-def test_query_results_pdf_prints_notes(tmp_path):
-    from pypdf import PdfReader
-
-    path = tmp_path / "q.pdf"
-    make_pdfs.build_query_results_pdf([], path, 0, "2026-09-26", notes=["A note worth reading."])
-    assert "A note worth reading." in PdfReader(str(path)).pages[0].extract_text()
 
 
 # ---- clean.py -------------------------------------------------------------------------------

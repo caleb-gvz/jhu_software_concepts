@@ -20,12 +20,15 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sess
 from db_config import sqlalchemy_url
 
 
-class Base(DeclarativeBase):
+class Base(DeclarativeBase):  # pylint: disable=too-few-public-methods
     """Declarative base for the ORM models."""
 
 
-class Applicant(Base):
-    """One Grad Cafe result entry (one row of ``applicants``)."""
+class Applicant(Base):  # pylint: disable=too-few-public-methods
+    """One Grad Cafe result entry (one row of ``applicants``).
+
+    A declarative model is pure data (columns), so it has no public methods to count.
+    """
 
     __tablename__ = "applicants"
 
@@ -67,7 +70,8 @@ def make_session_factory(url: Optional[Union[URL, str]] = None) -> sessionmaker:
 
 
 engine = make_engine()
-SessionLocal = sessionmaker(engine, expire_on_commit=False)
+# ``sessionmaker`` returns a class-like factory, so the conventional CapWords name is kept.
+SessionLocal = sessionmaker(engine, expire_on_commit=False)  # pylint: disable=invalid-name
 
 
 def get_session() -> Session:

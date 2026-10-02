@@ -26,6 +26,8 @@ NO_ROWS_MESSAGE = "No matching entries."
 
 @dataclass(frozen=True)
 class Question:
+    """One analysis question: its label, wording and how its result rows are phrased."""
+
     number: str          # "1".."9" for the assigned questions, "O1"/"O2" for my own
     title: str
     question: str
@@ -33,18 +35,22 @@ class Question:
 
 
 def _first_value(rows: Rows) -> Any:
+    """The single value of a one-row, one-column result (``None`` if there are no rows)."""
     return rows[0][0] if rows else None
 
 
 def render_q1(rows: Rows) -> List[str]:
+    """Question 1: how many Fall 2026 applicants."""
     return [f"Fall 2026 applicant count: {fmt_count(_first_value(rows))}"]
 
 
 def render_q2(rows: Rows) -> List[str]:
+    """Question 2: percent of classified applicants who are international."""
     return [f"Percent international: {fmt_percent(_first_value(rows))}"]
 
 
 def render_q3(rows: Rows) -> List[str]:
+    """Question 3: average GPA and the three GRE scores."""
     gpa, gre_q, gre_v, gre_aw = rows[0]
     return [
         f"Average GPA: {fmt_average(gpa)}",
@@ -55,22 +61,30 @@ def render_q3(rows: Rows) -> List[str]:
 
 
 def render_q4(rows: Rows) -> List[str]:
+    """Question 4: average GPA of American Fall 2026 applicants."""
     return [f"Average GPA of American Fall 2026 applicants: {fmt_average(_first_value(rows))}"]
 
 
 def render_q5(rows: Rows) -> List[str]:
+    """Question 5: Fall 2025 acceptance percentage."""
     return [f"Fall 2025 acceptance percentage: {fmt_percent(_first_value(rows))}"]
 
 
 def render_q6(rows: Rows) -> List[str]:
+    """Question 6: average GPA of accepted Fall 2026 applicants."""
     return [f"Average GPA of accepted Fall 2026 applicants: {fmt_average(_first_value(rows))}"]
 
 
 def render_q7(rows: Rows) -> List[str]:
-    return [f"Johns Hopkins University Computer Science master's entries: {fmt_count(_first_value(rows))}"]
+    """Question 7: Johns Hopkins Computer Science master's entries."""
+    return [
+        "Johns Hopkins University Computer Science master's entries: "
+        f"{fmt_count(_first_value(rows))}"
+    ]
 
 
 def render_q8(rows: Rows) -> List[str]:
+    """Question 8: accepted Fall 2026 PhD Computer Science entries at the four schools."""
     return [
         "Fall 2026 accepted PhD Computer Science entries (original fields): "
         f"{fmt_count(_first_value(rows))}"
@@ -78,6 +92,7 @@ def render_q8(rows: Rows) -> List[str]:
 
 
 def render_q9(rows: Rows) -> List[str]:
+    """Question 9: original-field versus LLM-field count and their difference."""
     original_count, llm_count = rows[0]
     return [
         f"Original-field count: {fmt_count(original_count)}",
@@ -87,6 +102,7 @@ def render_q9(rows: Rows) -> List[str]:
 
 
 def render_o1(rows: Rows) -> List[str]:
+    """Original question 1: acceptance rate per nationality group."""
     if not rows:
         return [NO_ROWS_MESSAGE]
     return [
@@ -96,6 +112,7 @@ def render_o1(rows: Rows) -> List[str]:
 
 
 def render_o2(rows: Rows) -> List[str]:
+    """Original question 2: GPA and GRE Quantitative for accepted versus rejected."""
     if not rows:
         return [NO_ROWS_MESSAGE]
     return [
@@ -184,3 +201,15 @@ def display_label(number: str) -> str:
     if number.startswith("O"):
         return f"Original question {number[1:]}"
     return f"Question {number}"
+
+
+def print_answer(label: str, question: str, lines: Sequence[str], suffix: str = "") -> None:
+    """Print one question and its indented answer lines, followed by a blank line.
+
+    Shared by the raw-SQL and ORM command-line scripts so their console output is
+    identical. ``suffix`` is appended to the question line (e.g. a marker tag).
+    """
+    print(f"{label}: {question}{suffix}")
+    for line in lines:
+        print(f"  {line}")
+    print()

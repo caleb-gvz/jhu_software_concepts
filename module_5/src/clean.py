@@ -34,7 +34,8 @@ def _normalize_status(value: Optional[str]) -> Optional[str]:
     return _clean_text(value)
 
 
-def _coerce_float(value: Any) -> Optional[float]:
+def coerce_float(value: Any) -> Optional[float]:
+    """Best-effort float coercion; GradCafe's API mixes int/str/None types."""
     if value is None:
         return None
     if isinstance(value, (int, float)):
@@ -66,7 +67,7 @@ def clean_data(records: List[Any]) -> List[Any]:
             )
         for field in _FLOAT_FIELDS:
             if field in new_record:
-                new_record[field] = _coerce_float(new_record[field])
+                new_record[field] = coerce_float(new_record[field])
         cleaned.append(new_record)
     return cleaned
 

@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import psycopg
 
-from db_config import connect
+from db_config import connect, report_connection_error
 
 Record = Dict[str, Any]
 
@@ -179,7 +179,9 @@ def _text(value: Any) -> Optional[str]:
     return collapsed or None
 
 
-def _number_in_range(value: Any, low: float, high: float, *, low_inclusive: bool = True) -> Optional[float]:
+def _number_in_range(
+    value: Any, low: float, high: float, *, low_inclusive: bool = True
+) -> Optional[float]:
     """Return value as a float if it lies within [low, high]; otherwise None."""
     if value is None:
         return None
@@ -381,12 +383,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             result = load_records(conn, records)
             total = _count_rows(conn)
     except psycopg.OperationalError as exc:
-        print(
-            "Could not connect to PostgreSQL. Check that the server is running and that "
-            "DATABASE_URL (or PGHOST, PGPORT, PGDATABASE, PGUSER and PGPASSWORD) is set.\n"
-            f"Details: {exc}",
-            file=sys.stderr,
-        )
+        report_connection_error(exc)
         return 1
 
     _report_rejections("records", result.rejected)

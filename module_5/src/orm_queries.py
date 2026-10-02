@@ -23,8 +23,13 @@ from sqlalchemy import Numeric, and_, case, func, literal, or_, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from db_config import report_connection_error
 from models import Applicant, make_session_factory
-from questions import QUESTIONS, Question, Rows, display_label, get_question
+from questions import QUESTIONS, Question, Rows, display_label, get_question, print_answer
+
+# Pylint cannot see through SQLAlchemy's dynamic ``func`` namespace, so it reports every
+# ``func.count(...)`` call as "not callable". That is a known false positive.
+# pylint: disable=not-callable
 
 REQUIRED_BY_ASSIGNMENT = ("1", "4", "5", "8", "9", "O1")
 
@@ -260,24 +265,17 @@ def get_analysis(session: Session) -> Dict[str, Any]:
 
 
 def main() -> int:
+    """Run every ORM query against the configured database and print the answers."""
     try:
         with make_session_factory()() as session:
             results = run_all(session)
     except OperationalError as exc:
-        print(
-            "Could not connect to PostgreSQL. Check that the server is running and that "
-            "DATABASE_URL (or PGHOST, PGPORT, PGDATABASE, PGUSER and PGPASSWORD) is set.\n"
-            f"Details: {exc.orig}",
-            file=sys.stderr,
-        )
+        report_connection_error(exc.orig)
         return 1
 
     for question, lines in results:
         marker = "  [required ORM question]" if question.number in REQUIRED_BY_ASSIGNMENT else ""
-        print(f"{display_label(question.number)}: {question.question}{marker}")
-        for line in lines:
-            print(f"  {line}")
-        print()
+        print_answer(display_label(question.number), question.question, lines, marker)
     return 0
 
 

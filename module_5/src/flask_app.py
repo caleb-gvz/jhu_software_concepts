@@ -102,7 +102,11 @@ def _busy_response() -> Tuple[Any, int]:
     return jsonify(ok=False, busy=True, message=BUSY_MESSAGE), 409
 
 
-def create_app(
+# The factory takes one injectable collaborator per seam (scraper, loader, query function,
+# session factory, pull manager) so tests can run the whole app offline, and it defines the
+# routes as closures over them. That is why it has more arguments and locals than the
+# default limits allow.
+def create_app(  # pylint: disable=too-many-arguments,too-many-locals
     config: Optional[Mapping[str, Any]] = None,
     *,
     scraper: Optional[pull_data.ScrapeFunction] = None,

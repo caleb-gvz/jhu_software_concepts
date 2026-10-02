@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from bs4 import BeautifulSoup
 
+from clean import coerce_float
+
 BASE_URL = "https://www.thegradcafe.com"
 SURVEY_PATH = "/survey"
 USER_AGENT = (
@@ -158,18 +160,6 @@ _DECISION_DATE_FIELDS = (
 )
 
 
-def _coerce_float(value: Any) -> Optional[float]:
-    """Best-effort float coercion; GradCafe's API mixes int/str/None types."""
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    try:
-        return float(str(value).strip())
-    except (TypeError, ValueError):
-        return None
-
-
 def _parse_record(raw: Dict[str, Any]) -> Dict[str, Any]:
     """Map one GradCafe API record into our applicant_data.json schema."""
     program_raw = (raw.get("program") or "").strip()
@@ -197,11 +187,11 @@ def _parse_record(raw: Dict[str, Any]) -> Dict[str, Any]:
         "status_label_raw": raw.get("decision_label"),
         "term": raw.get("season"),
         "us_or_international": raw.get("status"),
-        "gre_score": _coerce_float(raw.get("greq")),
-        "gre_v": _coerce_float(raw.get("grev")),
-        "gre_aw": _coerce_float(raw.get("grew")),
-        "gre_subject": _coerce_float(raw.get("gres")),
-        "gpa": _coerce_float(raw.get("ugpa")),
+        "gre_score": coerce_float(raw.get("greq")),
+        "gre_v": coerce_float(raw.get("grev")),
+        "gre_aw": coerce_float(raw.get("grew")),
+        "gre_subject": coerce_float(raw.get("gres")),
+        "gpa": coerce_float(raw.get("ugpa")),
         "comments": raw.get("notes"),
         "date_added": raw.get("added_on_label"),
         "date_added_raw": raw.get("created_at"),
@@ -234,15 +224,62 @@ def _save_checkpoint(checkpoint: Dict[str, Any], path: str) -> None:
         json.dump(checkpoint, f)
 
 
-def scrape_data(
+def _fetch_page_records(
+    url: str, fetch_fn
+) -> Optional[Tuple[List[Dict[str, Any]], Optional[str]]]:
+    """Fetch and parse one survey page: ``(raw records, next cursor)``.
+
+    Returns ``None`` after printing the reason when the request is blocked or the page
+    cannot be parsed, so the caller can stop without retrying.
+    """
+    try:
+        html_text = fetch_fn(url)
+    except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+        print(f"Request blocked/failed ({exc}); stopping without retry.")
+        return None
+    try:
+        return _extract_page_records(html_text)
+    except ValueError as exc:
+        print(f"Could not parse page ({exc}); stopping.")
+        return None
+
+
+def _absorb_page(
+    page_records: List[Dict[str, Any]], seen_ids: Set[Any], records: List[Dict[str, Any]]
+) -> None:
+    """Parse every not-yet-seen raw record on a page and append it to ``records``."""
+    for raw in page_records:
+        record_id = raw.get("id")
+        if record_id in seen_ids:
+            continue
+        seen_ids.add(record_id)
+        records.append(_parse_record(raw))
+
+
+def _persist_progress(
+    records: List[Dict[str, Any]],
+    output_path: str,
+    checkpoint: Dict[str, Any],
+    checkpoint_path: str,
+) -> None:
+    """Write the scraped records and the resume checkpoint to disk."""
+    save_data(records, output_path)
+    _save_checkpoint(checkpoint, checkpoint_path)
+
+
+def scrape_data(  # pylint: disable=too-many-arguments
     target_count: int,
     output_path: str = "applicant_data.json",
     checkpoint_path: str = "scrape_checkpoint.json",
+    *,
     delay_seconds: float = 0.75,
     fetch_fn=_fetch_page,
     robots_parser: Optional[urllib.robotparser.RobotFileParser] = None,
 ) -> List[Dict[str, Any]]:
-    """Scrape GradCafe survey results up to target_count, resumably."""
+    """Scrape GradCafe survey results up to target_count, resumably.
+
+    ``fetch_fn`` and ``robots_parser`` are injectable so tests run without the network.
+    """
     checkpoint = _load_checkpoint(checkpoint_path)
     records = load_data(output_path)
     seen_ids = set(checkpoint.get("seen_ids", []))
@@ -257,31 +294,19 @@ def scrape_data(
         if not _check_robots_allowed(url, robots_parser):
             print(f"robots.txt disallows {url}; stopping.")
             break
-        try:
-            html_text = fetch_fn(url)
-        except (urllib.error.HTTPError, urllib.error.URLError) as exc:
-            print(f"Request blocked/failed ({exc}); stopping without retry.")
+        page = _fetch_page_records(url, fetch_fn)
+        if page is None:
             break
+        page_records, next_cursor = page
 
-        try:
-            page_records, next_cursor = _extract_page_records(html_text)
-        except ValueError as exc:
-            print(f"Could not parse page ({exc}); stopping.")
-            break
-
-        for raw in page_records:
-            rid = raw.get("id")
-            if rid in seen_ids:
-                continue
-            seen_ids.add(rid)
-            records.append(_parse_record(raw))
+        _absorb_page(page_records, seen_ids, records)
 
         cursor = next_cursor
         pages_since_save += 1
         if pages_since_save >= 25 or next_cursor is None:
-            save_data(records, output_path)
-            _save_checkpoint(
-                {"next_cursor": cursor, "seen_ids": list(seen_ids)}, checkpoint_path
+            _persist_progress(
+                records, output_path,
+                {"next_cursor": cursor, "seen_ids": list(seen_ids)}, checkpoint_path,
             )
             pages_since_save = 0
 
@@ -292,9 +317,9 @@ def scrape_data(
         if len(seen_ids) < target_count:
             time.sleep(delay_seconds)
 
-    save_data(records, output_path)
-    _save_checkpoint(
-        {"next_cursor": cursor, "seen_ids": list(seen_ids)}, checkpoint_path
+    _persist_progress(
+        records, output_path,
+        {"next_cursor": cursor, "seen_ids": list(seen_ids)}, checkpoint_path,
     )
     return records
 

@@ -106,7 +106,9 @@ class PullManager:
         """Run the job, turn its result (or exception) into an outcome, release busy."""
         try:
             result = job(self._report)
-        except Exception as exc:  # any failure becomes a readable, failed outcome
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            # Deliberately broad: this is the job-runner boundary, and any failure inside
+            # a pull must become a readable, failed outcome instead of killing the thread.
             outcome = PullOutcome(
                 succeeded=False, message=f"The data pull failed: {exc}"
             )

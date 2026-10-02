@@ -10,7 +10,6 @@ from scrape import (
     BASE_URL,
     _build_survey_url,
     _check_robots_allowed,
-    _coerce_float,
     _extract_page_records,
     _fetch_page,
     _merge_robots_groups,
@@ -155,13 +154,6 @@ WAITLISTED_RECORD_WITH_GRE = {
     "created_at": "2026-09-10",
     "added_on_label": "Sep 10, 2026",
 }
-
-
-def test_coerce_float_handles_none_str_int():
-    assert _coerce_float(None) is None
-    assert _coerce_float("3.57") == 3.57
-    assert _coerce_float(163) == 163.0
-    assert _coerce_float("not a number") is None
 
 
 def test_parse_record_accepted_no_scores():

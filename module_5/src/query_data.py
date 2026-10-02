@@ -24,9 +24,9 @@ import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
 
-from db_config import connect
+from db_config import connect, report_connection_error
 from load_data import COLUMNS
-from questions import QUESTIONS, Rows, display_label
+from questions import QUESTIONS, Rows, display_label, print_answer
 
 Q1_SQL = """\
 SELECT COUNT(*)
@@ -157,6 +157,8 @@ EXPLANATION_BY_NUMBER: Dict[str, str] = {
 
 @dataclass(frozen=True)
 class Query:
+    """One question bound to the SQL that answers it and a plain-language explanation."""
+
     number: str
     title: str
     question: str
@@ -223,23 +225,16 @@ def fetch_applicants(
 
 
 def main() -> int:
+    """Run every query against the configured database and print the answers."""
     try:
         with connect() as conn:
             results = run_all(conn)
     except psycopg.OperationalError as exc:
-        print(
-            "Could not connect to PostgreSQL. Check that the server is running and that "
-            "DATABASE_URL (or PGHOST, PGPORT, PGDATABASE, PGUSER and PGPASSWORD) is set.\n"
-            f"Details: {exc}",
-            file=sys.stderr,
-        )
+        report_connection_error(exc)
         return 1
 
     for query, lines in results:
-        print(f"{display_label(query.number)}: {query.question}")
-        for line in lines:
-            print(f"  {line}")
-        print()
+        print_answer(display_label(query.number), query.question, lines)
     return 0
 
 

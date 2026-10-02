@@ -3,16 +3,22 @@
 
 from __future__ import annotations
 
+import argparse
+import contextlib
+import difflib
+import functools
 import json
 import os
 import re
 import sys
-import difflib
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Iterator, List, TextIO, Tuple
 
 from flask import Flask, jsonify, request
-from huggingface_hub import hf_hub_download
-from llama_cpp import Llama  # CPU-only by default if N_GPU_LAYERS=0
+
+# These two heavy packages are optional (see llm_hosting/requirements.txt). They are not
+# installed for the Flask app or the test suite, so static analysis cannot resolve them.
+from huggingface_hub import hf_hub_download  # pylint: disable=import-error
+from llama_cpp import Llama  # pylint: disable=import-error  # CPU-only if N_GPU_LAYERS=0
 
 app = Flask(__name__)
 
@@ -110,15 +116,9 @@ FEW_SHOTS: List[Tuple[Dict[str, str], Dict[str, str]]] = [
     ),
 ]
 
-_LLM: Llama | None = None
-
-
+@functools.lru_cache(maxsize=1)
 def _load_llm() -> Llama:
-    """Download (or reuse) the GGUF file and initialize llama.cpp."""
-    global _LLM
-    if _LLM is not None:
-        return _LLM
-
+    """Download (or reuse) the GGUF file and initialize llama.cpp (once per process)."""
     model_path = hf_hub_download(
         repo_id=MODEL_REPO,
         filename=MODEL_FILE,
@@ -127,14 +127,13 @@ def _load_llm() -> Llama:
         force_filename=MODEL_FILE,
     )
 
-    _LLM = Llama(
+    return Llama(
         model_path=model_path,
         n_ctx=N_CTX,
         n_threads=N_THREADS,
         n_gpu_layers=N_GPU_LAYERS,
         verbose=False,
     )
-    return _LLM
 
 
 def _split_fallback(text: str) -> Tuple[str, str]:
@@ -240,7 +239,7 @@ def _call_llm(program_text: str) -> Dict[str, str]:
         obj = json.loads(match.group(0) if match else text)
         std_prog = str(obj.get("standardized_program", "")).strip()
         std_uni = str(obj.get("standardized_university", "")).strip()
-    except Exception:
+    except (ValueError, AttributeError):  # not JSON, or JSON that is not an object
         std_prog, std_uni = _split_fallback(program_text)
 
     std_prog = _post_normalize_program(std_prog)
@@ -283,6 +282,16 @@ def standardize() -> Any:
     return jsonify({"rows": out})
 
 
+@contextlib.contextmanager
+def _open_sink(to_stdout: bool, path: str, append: bool) -> Iterator[TextIO]:
+    """Yield stdout, or ``path`` opened for writing/appending (closed afterwards)."""
+    if to_stdout:
+        yield sys.stdout
+        return
+    with open(path, "a" if append else "w", encoding="utf-8") as handle:
+        yield handle
+
+
 def _cli_process_file(
     in_path: str,
     out_path: str | None,
@@ -293,15 +302,7 @@ def _cli_process_file(
     with open(in_path, "r", encoding="utf-8") as f:
         rows = _normalize_input(json.load(f))
 
-    sink = sys.stdout if to_stdout else None
-    if not to_stdout:
-        out_path = out_path or (in_path + ".jsonl")
-        mode = "a" if append else "w"
-        sink = open(out_path, mode, encoding="utf-8")
-
-    assert sink is not None  # for type-checkers
-
-    try:
+    with _open_sink(to_stdout, out_path or (in_path + ".jsonl"), append) as sink:
         for row in rows:
             program_text = (row or {}).get("program") or ""
             result = _call_llm(program_text)
@@ -311,15 +312,10 @@ def _cli_process_file(
             json.dump(row, sink, ensure_ascii=False)
             sink.write("\n")
             sink.flush()
-    finally:
-        if sink is not sys.stdout:
-            sink.close()
 
 
 def main(argv: List[str] | None = None) -> None:
     """Command-line entry point: run the HTTP server or standardize a JSON file."""
-    import argparse
-
     parser = argparse.ArgumentParser(
         description="Standardize program/university with a tiny local LLM.",
     )

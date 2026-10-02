@@ -1,6 +1,6 @@
 import pytest
 
-from clean import _clean_text, _coerce_float, _normalize_status, clean_data
+from clean import _clean_text, _normalize_status, clean_data, coerce_float
 
 pytestmark = pytest.mark.db
 
@@ -24,10 +24,11 @@ def test_normalize_status_collapses_whitespace():
 
 
 def test_coerce_float_from_mixed_types():
-    assert _coerce_float("3.9") == 3.9
-    assert _coerce_float(163) == 163.0
-    assert _coerce_float(None) is None
-    assert _coerce_float("N/A") is None
+    assert coerce_float("3.9") == 3.9
+    assert coerce_float("3.57") == 3.57
+    assert coerce_float(163) == 163.0
+    assert coerce_float(None) is None
+    assert coerce_float("N/A") is None
 
 
 def test_clean_data_normalizes_whitespace_and_preserves_raw_fields():
