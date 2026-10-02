@@ -1,0 +1,92 @@
+Least-privilege evidence for Module 5
+Captured: 2026-10-01 23:00:49 EDT
+Server:   PostgreSQL 18.6 on x86_64-windows
+
+### 1. psql -U gradcafe_m5_owner -d gradcafe_m5 -f db_verify_privileges.sql
+--- 1. Role attributes: neither role is a superuser and neither can create roles or databases
+      rolname      | rolsuper | rolcreatedb | rolcreaterole | rolreplication | rolbypassrls 
+-------------------+----------+-------------+---------------+----------------+--------------
+ gradcafe_m5_app   | f        | f           | f             | f              | f
+ gradcafe_m5_owner | f        | f           | f             | f              | f
+(2 rows)
+
+--- 2. Table-level privileges held by gradcafe_m5_app on applicants (expect SELECT, INSERT)
+ privilege_type 
+----------------
+ INSERT
+ SELECT
+(2 rows)
+
+--- 3. Which columns can gradcafe_m5_app UPDATE (expect only the two llm_* columns)
+       column_name        
+--------------------------
+ llm_generated_program
+ llm_generated_university
+(2 rows)
+
+--- 4. Owner-only operations (expect f for every row)
+ privilege  | app_has_it 
+------------+------------
+ DELETE     | f
+ TRUNCATE   | f
+ REFERENCES | f
+ TRIGGER    | f
+(4 rows)
+
+        privilege        | app_has_it 
+-------------------------+------------
+ CREATE on schema public | f
+(1 row)
+
+         privilege         | app_has_it 
+---------------------------+------------
+ owns the applicants table | f
+(1 row)
+
+
+### 2. psql -U gradcafe_m5_app -d gradcafe_m5_test -f db_demo_refusals.sql
+Pager usage is off.
+  connected_as   |     database     
+-----------------+------------------
+ gradcafe_m5_app | gradcafe_m5_test
+(1 row)
+
+
+>>> DROP TABLE applicants
+BEGIN
+psql:db_demo_refusals.sql:17: ERROR:  must be owner of table applicants
+ROLLBACK
+>>> ALTER TABLE applicants ADD COLUMN extra TEXT
+BEGIN
+psql:db_demo_refusals.sql:20: ERROR:  must be owner of table applicants
+ROLLBACK
+>>> TRUNCATE applicants
+BEGIN
+psql:db_demo_refusals.sql:23: ERROR:  permission denied for table applicants
+ROLLBACK
+>>> DELETE FROM applicants
+BEGIN
+psql:db_demo_refusals.sql:26: ERROR:  permission denied for table applicants
+ROLLBACK
+>>> UPDATE applicants SET status = 'hacked'   (only the two llm_* columns are updatable)
+BEGIN
+psql:db_demo_refusals.sql:29: ERROR:  permission denied for table applicants
+ROLLBACK
+>>> CREATE TABLE evil (id INT)
+BEGIN
+psql:db_demo_refusals.sql:32: ERROR:  permission denied for schema public
+LINE 1: CREATE TABLE evil (id INT);
+                     ^
+ROLLBACK
+>>> CREATE ROLE evil LOGIN
+BEGIN
+psql:db_demo_refusals.sql:35: ERROR:  permission denied to create role
+DETAIL:  Only roles with the CREATEROLE attribute may create roles.
+ROLLBACK
+
+>>> SELECT count(*) FROM applicants   (allowed)
+ rows_visible 
+--------------
+            1
+(1 row)
+

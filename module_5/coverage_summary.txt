@@ -1,0 +1,27 @@
+=============================== tests coverage ================================
+_______________ coverage: platform win32, python 3.14.3-final-0 _______________
+
+Name                             Stmts   Miss  Cover   Missing
+--------------------------------------------------------------
+src\clean.py                        55      0   100%
+src\db_config.py                    53      0   100%
+src\flask_app.py                   104      0   100%
+src\formatting.py                   19      0   100%
+src\llm_hosting\app.py             150      0   100%
+src\load_data.py                   190      0   100%
+src\make_report.py                 207      0   100%
+src\make_zip.py                     56      0   100%
+src\models.py                       37      0   100%
+src\orm_queries.py                  79      0   100%
+src\pull_data.py                    75      0   100%
+src\pull_manager.py                 65      0   100%
+src\query_data.py                  109      0   100%
+src\questions.py                    57      0   100%
+src\run_llm_standardization.py      83      0   100%
+src\scrape.py                      212      0   100%
+src\sql_safety.py                   25      0   100%
+src\web_assets\__init__.py           0      0   100%
+--------------------------------------------------------------
+TOTAL                             1576      0   100%
+Required test coverage of 100% reached. Total coverage: 100.00%
+408 passed in 26.30s

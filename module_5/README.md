@@ -99,6 +99,28 @@ repository root as `pytest module_5 -m "..."`. The final summary is saved in `co
 Tests that need the least-privilege role are skipped, with a stated reason, unless
 `TEST_APP_DATABASE_URL` is set.
 
+## Packaging: why setup.py matters
+
+`setup.py` makes the project an installable package instead of a folder of scripts. **Why packaging
+matters:**
+
+* **Imports behave the same everywhere.** The modules in `src/` import each other by bare name
+  (`import query_data`). `pip install -e .` puts `src/` on the import path once, so a local shell, pytest and
+  GitHub Actions resolve imports identically, with no hand-set `PYTHONPATH` and no dependence on which
+  directory you launched from. (This was checked by importing and rendering the app from an unrelated
+  folder.)
+* **Editable installs remove "it works on my machine" path bugs.** `pip install -e .` links to the source
+  instead of copying it, so edits take effect immediately and the installed project and the working tree
+  cannot drift apart.
+* **Dependencies are declared once, next to the code.** `install_requires` lists what the app needs and
+  `extras_require["dev"]` lists the test, lint and security tooling. Tools like `uv` can extract those lists
+  when syncing environments, and `requirements.txt` pins the exact tested versions of the same set.
+* **A real wheel is complete.** The templates and CSS live in the `web_assets` package and are listed in
+  `package_data`, so `pip install .` (not just `-e`) produces a working app; a built wheel was installed into
+  a clean environment to confirm it renders the page.
+
+`tests/test_packaging.py` keeps `setup.py`, the imports in `src/` and `requirements.txt` consistent.
+
 ## SQL injection defenses
 
 **Rule: SQL text is composed with `psycopg.sql`; values only ever travel as bound parameters.**
@@ -147,6 +169,68 @@ and that the table is still intact. `tests/test_sql_composition_guard.py` parses
 and fails if any `execute()` / `executemany()` is ever given an f-string, `+`/`%` concatenation,
 `.format()` or string literal.
 
+## Least-privilege database
+
+The web app should hold only the database power it needs. A superuser, or even the owner of the tables,
+could drop or rewrite everything if an injection ever got through. So `src/db_setup.sql` creates two
+**non-superuser** roles (neither can create roles or databases, replicate, or bypass row security):
+
+| Role | Purpose | Holds |
+|---|---|---|
+| `gradcafe_m5_owner` | Owns the databases and the `applicants` table. Used only to provision the schema, for `load_data.py --reset`, and by the test suite on its scratch database. | Ownership (DDL) |
+| `gradcafe_m5_app` | What the Flask app and the command-line tools log in as. | The grants below, and nothing else |
+
+**Permissions granted to `gradcafe_m5_app`, and why**
+
+| Permission | Why the app needs it |
+|---|---|
+| `CONNECT` on `gradcafe_m5` (and the scratch database) | To log in. `PUBLIC` has no `CONNECT`, so no other role can. |
+| `USAGE` on schema `public` | To reach the table. There is deliberately **no** `CREATE` on the schema. |
+| `SELECT` on `applicants` | Every analysis query, `GET /applicants`, and the "which ids do I already have?" read before a pull. |
+| `INSERT` on `applicants` | The Pull Data button and `load_data.py` add new rows. |
+| `UPDATE (llm_generated_program, llm_generated_university)` | The upsert's `ON CONFLICT ... DO UPDATE` may fill an *empty* LLM column. Column-level, so no other column can be modified. |
+
+Not granted: `DELETE`, `TRUNCATE`, `REFERENCES`, `TRIGGER`, `DROP`, `ALTER`, `CREATE`, or ownership of
+anything. The role cannot hand out privileges either.
+
+**The SQL** (`src/db_privileges.sql`, run once per database by `db_setup.sql`):
+
+```sql
+SET ROLE gradcafe_m5_owner;                         -- the table is created and owned by the owner
+CREATE TABLE IF NOT EXISTS applicants ( ... );
+REVOKE ALL ON TABLE applicants FROM PUBLIC;
+REVOKE ALL ON TABLE applicants FROM gradcafe_m5_app;
+GRANT SELECT, INSERT ON TABLE applicants TO gradcafe_m5_app;
+GRANT UPDATE (llm_generated_program, llm_generated_university)
+    ON TABLE applicants TO gradcafe_m5_app;
+RESET ROLE;
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+GRANT USAGE ON SCHEMA public TO gradcafe_m5_app;   -- usage only: no CREATE
+```
+
+**Credentials come from the environment.** The roles' passwords are read from `DB_OWNER_PASSWORD` and
+`DB_PASSWORD` (`\getenv` in `db_setup.sql`), never written into a script. The application reads
+`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` (see *Configure the database connection*).
+`.env.example` has placeholders only, and `.env` is git-ignored.
+
+**Provision and verify** (from `module_5/src/`; `psql` prompts for the `postgres` password):
+
+```bash
+./setup_db.sh                                    # Windows: double-click setup_db.bat
+psql -U gradcafe_m5_owner -h localhost -d gradcafe_m5 -f db_verify_privileges.sql   # privileges held
+psql -U gradcafe_m5_app -h localhost -d gradcafe_m5_test -f db_demo_refusals.sql    # forbidden statements
+```
+
+The owner role is needed only for schema changes. For example, to empty and reload the table:
+`DB_USER=gradcafe_m5_owner DB_PASSWORD=<owner password> python src/load_data.py --reset`.
+
+**It is tested, not just configured.** `tests/test_db_setup_script.py` reviews the SQL (no password
+literals, no destructive grant, `UPDATE` limited to the two columns). `tests/test_least_privilege.py` logs in
+as the real application role and checks that `DROP`, `ALTER`, `TRUNCATE`, `DELETE`, `CREATE TABLE`,
+`CREATE ROLE`, updating any other column and granting to `PUBLIC` all fail, that the data survives, and that
+the whole app (analysis page, `/applicants`, Update Analysis, Pull Data) still works under those limits.
+The Flask pull and the loader no longer run DDL; a recorder test fails if either ever sends any.
+
 ## Dependency graph
 
 `dependency.svg` is generated with pydeps and Graphviz. From `module_5/`, with `dot` on your PATH:
@@ -193,3 +277,42 @@ one-line justification: SQLAlchemy's dynamic `func` namespace (a known `not-call
 false positive), the job-runner boundary that must catch every exception, declarative
 models with no methods, the dependency-injection `create_app` factory, and two optional
 LLM packages that are intentionally not installed.
+
+## Snyk dependency scan
+
+Supply-chain check of the pinned dependencies in `requirements.txt`. With the virtual environment active
+(Snyk's Python plugin reads the *installed* packages) and after a one-time `snyk auth`:
+
+```bash
+snyk test --file=requirements.txt --package-manager=pip
+```
+
+The output is saved as the screenshot `snyk-analysis.png`. Extra credit, static analysis of the source:
+
+```bash
+snyk code test
+```
+
+with the evidence in `snyk-code-analysis.png`. Any vulnerability Snyk reports is documented below with the
+action taken (upgrade the pinned version in `requirements.in`, regenerate `requirements.txt`, or remove the
+package).
+
+**Findings.** _Filled in after the scan; see the next commit._
+
+## Continuous integration
+
+`.github/workflows/ci.yml` (at the repository root, next to `module_5/`) runs on **every push and pull
+request** as four separate jobs, so each failure is visible on its own:
+
+| Job | What it enforces |
+|---|---|
+| `pylint` | `pylint src --fail-under=10`: the build fails if the score is below 10. |
+| `dependency-graph` | Installs Graphviz, runs `pydeps ... -o dependency.svg`, and `test -s dependency.svg` fails the job if the file is missing or empty. The SVG is uploaded as an artifact. |
+| `snyk` | `snyk test` on the pinned dependencies, failing on high or critical issues. It needs a `SNYK_TOKEN` repository secret; without one the job passes with a visible warning that the scan was skipped. |
+| `pytest` | Starts PostgreSQL 16, runs `src/db_setup.sql` to create the owner and least-privilege roles, then runs the full marked suite with the 100% coverage gate (`--cov-fail-under=100` in `pytest.ini`), including the live least-privilege tests. A failing test fails the build. |
+
+All four jobs install from the pinned `requirements.txt`. Module 4's workflow (`tests.yml`) keeps running
+for `module_4/`. A screenshot of a successful run is `actions_success.png`.
+
+To enable the Snyk job, add a repository secret named `SNYK_TOKEN` (GitHub: *Settings > Secrets and
+variables > Actions > New repository secret*) holding the token from your Snyk account settings.
